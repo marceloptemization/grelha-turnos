@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grelha de turnos · Farmácia Faria</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --paper: #fafdf7;
+    --paper-2: #f0f5ec;
+    --ink: #0d2818;
+    --ink-soft: #2d4a36;
+    --ink-faint: #6b7d72;
+    --accent: #1B5E20;
+    --accent-bright: #76C218;
+    --accent-soft: #9fd45c;
+    --rule: #d4dccd;
+    --ok: #1B5E20;
+    --warn: #b07a00;
+    --info: #1565c0;
+    --info-bg: #e3f2fd;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body, html {
+    background:
+      radial-gradient(ellipse at top left, #f4f9ee 0%, transparent 55%),
+      radial-gradient(ellipse at bottom right, #eaf2e1 0%, transparent 60%),
+      var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    min-height: 100vh;
+    padding: 56px 32px;
+  }
+
+  .frame { max-width: 780px; margin: 0 auto; }
+
+  .brand-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 36px;
+  }
+  .logo-text {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+  }
+  .locale {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    text-align: right;
+    line-height: 1.4;
+  }
+  .locale strong {
+    display: block;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: ui-serif, Georgia, "Times New Roman", serif;
+    font-size: 48px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 500;
+    margin-bottom: 14px;
+  }
+  h1 em { font-style: italic; color: var(--accent-bright); font-weight: 400; }
+
+  .lede {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 620px;
+    margin-bottom: 48px;
+  }
+
+  .steps {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    margin-bottom: 36px;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .step { padding: 16px 20px 16px 0; border-right: 1px solid var(--rule); }
+  .step:last-child { border-right: none; padding-right: 0; }
+  .step:not(:first-child) { padding-left: 20px; }
+  .step-num {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.1em;
+    margin-bottom: 4px;
+  }
+  .step-label {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 16px;
+    font-style: italic;
+    color: var(--ink);
+  }
+  .step.active .step-label { color: var(--accent); font-style: normal; font-weight: 500; }
+  .step.done .step-label { color: var(--accent-bright); font-weight: 500; }
+
+  .drop {
+    border: 1.5px dashed var(--rule);
+    background: rgba(255,255,255,0.5);
+    padding: 52px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    margin-bottom: 24px;
+    border-radius: 2px;
+  }
+  .drop:hover, .drop.over {
+    border-color: var(--accent-bright);
+    background: rgba(255,255,255,0.85);
+    transform: translateY(-1px);
+  }
+  .drop-icon {
+    font-family: ui-serif, Georgia, serif;
+    font-size: 38px;
+    color: var(--accent-bright);
+    font-style: italic;
+    margin-bottom: 6px;
+    line-height: 1;
+  }
+  .drop-text { font-family: ui-serif, Georgia, serif; font-size: 18px; }
+  .drop-sub {
+    font-size: 13px;
+    color: var(--ink-faint);
+    margin-top: 6px;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.05em;
+  }
+
+  #file-input { display: none; }
+
+  .panel {
+    background: rgba(255,255,255,0.6);
+    border: 1px solid var(--rule);
+    padding: 26px 30px;
+    margin-bottom: 22px;
+  }
+  .panel-title {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 14px;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 18px 32px;
+    margin-bottom: 4px;
+  }
+  .meta-item { border-left: 2px solid var(--accent-bright); padding-left: 14px; }
+  .meta-label {
+    font-size: 11px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+  }
+  .meta-value { font-family: ui-serif, Georgia, serif; font-size: 22px; color: var(--accent); }
+
+  .persons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 6px;
+    border: 1px solid var(--rule);
+    background: white;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+  .chip-swatch { width: 18px; height: 18px; border: 1px solid rgba(0,0,0,0.1); }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 28px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    transition: all 0.2s ease;
+    border-radius: 2px;
+    text-decoration: none;
+  }
+  .btn:hover { background: var(--accent-bright); color: var(--ink); transform: translateY(-1px); }
+  .btn.secondary {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--rule);
+  }
+  .btn.secondary:hover { background: white; border-color: var(--accent-bright); color: var(--accent); }
+  .btn-arrow { font-family: ui-serif, Georgia, serif; font-style: italic; font-size: 18px; }
+
+  .hidden { display: none !important; }
+
+  .alert {
+    padding: 14px 18px;
+    border-left: 3px solid var(--warn);
+    background: rgba(176, 122, 0, 0.08);
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+    font-family: ui-monospace, monospace;
+    line-height: 1.5;
+  }
+  .alert.err { border-color: #a83232; background: rgba(168, 50, 50, 0.08); }
+  .alert.info {
+    border-color: var(--info);
+    background: var(--info-bg);
+    color: #0d3d6e;
+  }
+  .alert ul { margin: 6px 0 0 20px; padding: 0; }
+  .alert li { margin-bottom: 2px; }
+  .alert strong { color: var(--ink); }
+
+  .footnote {
+    margin-top: 44px;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-family: ui-monospace, monospace;
+    letter-spacing: 0.04em;
+    line-height: 1.7;
+  }
+  .footnote .code {
+    display: inline-block;
+    padding: 1px 6px;
+    background: var(--paper-2);
+    color: var(--accent);
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .footnote strong { color: var(--ink); font-family: ui-sans-serif, system-ui, sans-serif; letter-spacing: 0; }
+
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid var(--ink-faint);
+    border-top-color: var(--accent-bright);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 8px;
+    vertical-align: -1px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .ornament {
+    text-align: center;
+    color: var(--accent-soft);
+    font-family: ui-serif, Georgia, serif;
+    font-size: 16px;
+    letter-spacing: 1em;
+    margin: 28px 0 0;
+  }
+
+  @media (max-width: 600px) {
+    body, html { padding: 32px 20px; }
+    .brand-bar { flex-direction: column; align-items: flex-start; gap: 14px; }
+    .locale { text-align: left; }
+    h1 { font-size: 36px; }
+    .lede { font-size: 16px; margin-bottom: 32px; }
+    .meta-grid { grid-template-columns: 1fr 1fr; }
+    .steps { grid-template-columns: 1fr; }
+    .step { border-right: none; border-bottom: 1px solid var(--rule); padding: 12px 0; }
+    .step:last-child { border-bottom: none; }
+    .step:not(:first-child) { padding-left: 0; }
+    .actions { flex-direction: column; }
+    .btn { justify-content: center; }
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="brand-bar">
+    <div class="logo-text">Farmácia Faria</div>
+    <div class="locale">
+      <strong>São Tirso</strong>
+      Gestão de turnos
+    </div>
+  </div>
+
+  <h1>Grelha de turnos, <em>automática</em>.</h1>
+  <p class="lede">
+    Lê um Excel com a tabela mensal de turnos e devolve a grelha pintada
+    de 30 em 30 minutos, das 08:30 às 22:00 — uma célula por colaborador,
+    com a sua cor.
+  </p>
+
+  <div class="steps">
+    <div class="step active" id="step-1"><div class="step-num">01</div><div class="step-label">Carregar ficheiro</div></div>
+    <div class="step" id="step-2"><div class="step-num">02</div><div class="step-label">Verificar deteção</div></div>
+    <div class="step" id="step-3"><div class="step-num">03</div><div class="step-label">Descarregar grelha</div></div>
+  </div>
+
+  <div class="drop" id="drop">
+    <div class="drop-icon">↑</div>
+    <div class="drop-text">Arrasta o Excel para aqui</div>
+    <div class="drop-sub">ou clica para escolher · .xlsx</div>
+    <input type="file" id="file-input" accept=".xlsx" />
+  </div>
+
+  <div id="result" class="hidden"></div>
+
+  <div class="ornament">· · ·</div>
+
+  <div class="footnote">
+    <strong>Estrutura esperada:</strong> dois blocos verticais (dias 1-16 nas linhas 1-13,
+    dias 17-31 nas linhas 16-28), iniciais dos colaboradores na coluna A,
+    turnos em texto como <span class="code">9-13+15-19</span>.<br>
+    <strong>Códigos:</strong> <span class="code">F1, F1/10</span> férias &middot;
+    <span class="code">f</span> folga &middot;
+    <span class="code">FN</span> folga da noite &middot;
+    <span class="code">formação</span> formação &middot;
+    <span class="code">-</span> não trabalha.<br>
+    Anotações entre parêntesis <span class="code">(r)</span> <span class="code">(e)</span> <span class="code">(c)</span>
+    e asteriscos são preservadas no texto mas ignoradas no parsing dos intervalos.
+    O <span class="code">+N</span> indica turno de noite a seguir e não é contabilizado.
+  </div>
+</div>
+
+<script>
+const PALETTE = {
+  AB: 'D9EAF7', BF: 'FCE4D6', DC: 'E2F0D9', IA: 'EDEDED',
+  IM: 'FFF2CC', MA: 'E4DFEC', MO: 'D9EAD3', RL: 'DDEBF7',
+  SA: 'F4CCCC', SP: 'D9EAD3', TA: 'CFE2F3', TM: 'FCE5CD'
+};
+const FALLBACK = ['BDD7EE','F8CBAD','C6E0B4','FFE699','CC99FF','9DC3E6','F4B084','A9D08E','D5A6BD','B4A7D6'];
+const DOW_WEEK = 'D9EAF7';
+const DOW_WEEKEND = 'FCE5CD';
+const FERIAS = 'FFF2CC';
+const FOLGA = 'EDEDED';
+const FOLGA_NOITE = 'FCE5CD';
+const FORMACAO = 'E2EFDA';
+const NEUTRAL = 'EDEDED';
+const OFF_WEEKEND = 'F4CCCC';
+const BORDER_RGB = 'CCCCCC';
+
+const TIME_SLOTS = [];
+for (let m = 510; m < 1320; m += 30) {
+  const fmt = mm => `${String(Math.floor(mm/60)).padStart(2,'0')}:${String(mm%60).padStart(2,'0')}`;
+  TIME_SLOTS.push(`${fmt(m)}-${fmt(m+30)}`);
+}
+
+function parseTime(t) {
+  t = String(t).replace(':','.').trim();
+  if (t.includes('.')) {
+    const [h, mm] = t.split('.');
+    return parseInt(h)*60 + parseInt(mm);
+  }
+  return parseInt(t)*60;
+}
+
+function classifyShift(s) {
+  if (s == null) return 'off';
+  const t = String(s).trim();
+  if (!t || t === '-') return 'off';
+  if (/^formação/i.test(t)) return 'formacao';
+  if (/^FN\b/i.test(t)) return 'folga_noite';
+  if (/^F\d/i.test(t)) return 'ferias';
+  if (t === 'f') return 'folga';
+  return 'work';
+}
+
+function detectTypoAndFix(s) {
+  const original = s;
+  let fixed = s;
+  let note = null;
+
+  if (/^\s*\d+\.\d+\s*$/.test(s) && !s.includes('-') && !s.includes('+')) {
+    const m = s.match(/^\s*(\d+)\.(\d+)\s*$/);
+    if (m) {
+      fixed = `${m[1]}-${m[2]}`;
+      note = `isolado "${original}" interpretado como "${fixed}" (provavelmente ponto em vez de hífen)`;
+    }
+  }
+  else if (/^\d+\+\d+\+\d+-/.test(s)) {
+    fixed = s.replace(/^(\d+)\+(\d+)\+/, '$1-$2+');
+    note = `"${original}" interpretado como "${fixed}" (provavelmente + em vez de -)`;
+  }
+  else if (/\d+-\d+\.?\d*-\d+\.?\d*-\d+/.test(s) && (s.match(/-/g) || []).length === 3 && !s.includes('+')) {
+    const parts = s.split('-');
+    if (parts.length === 4) {
+      fixed = `${parts[0]}-${parts[1]}+${parts[2]}-${parts[3]}`;
+      note = `"${original}" interpretado como "${fixed}" (provavelmente + em falta entre intervalos)`;
+    }
+  }
+
+  return { fixed, note };
+}
+
+function parseShift(raw) {
+  const kind = classifyShift(raw);
+  if (kind !== 'work') return { intervals: [], typoNote: null };
+
+  let s = String(raw).trim();
+  const typo = detectTypoAndFix(s);
+  s = typo.fixed;
+
+  s = s.replace(/\([^)]*\)/g, '');
+  s = s.replace(/\+\s*N\b/gi, '');
+  s = s.replace(/\bFN\b/g, '');
+  s = s.replace(/\*/g, '');
+  s = s.replace(/[\u2010\u2013\u2014]/g, '-');
+
+  const out = [];
+  for (const part of s.split('+')) {
+    const m = part.trim().match(/(\d+(?:[.:]\d+)?)\s*-+\s*(\d+(?:[.:]\d+)?)/);
+    if (m) {
+      try {
+        const a = parseTime(m[1]);
+        const b = parseTime(m[2]);
+        if (b > a) out.push([Math.max(a, 510), Math.min(b, 1320)]);
+      } catch(e) {}
+    }
+  }
+  return { intervals: out, typoNote: typo.note };
+}
+
+function cellVal(ws, r, c) {
+  const ref = XLSX.utils.encode_cell({ r, c });
+  return ws[ref] ? ws[ref].v : undefined;
+}
+
+function readSource(ab) {
+  const wb = XLSX.read(ab, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+
+  const persons1 = [];
+  for (let r = 2; r <= 12; r++) {
+    const v = cellVal(ws, r, 0);
+    if (v && /^[A-ZÀ-Ÿ]{1,4}$/i.test(String(v).trim())) persons1.push(String(v).trim());
+  }
+  const persons2 = [];
+  for (let r = 17; r <= 27; r++) {
+    const v = cellVal(ws, r, 0);
+    if (v && /^[A-ZÀ-Ÿ]{1,4}$/i.test(String(v).trim())) persons2.push(String(v).trim());
+  }
+
+  if (persons1.length === 0) {
+    throw new Error('Não consegui detetar colaboradores no bloco 1 (coluna A, linhas 3-13). Verifica a estrutura do ficheiro.');
+  }
+
+  const blockMismatch = persons1.length !== persons2.length || persons1.some((p, i) => p !== persons2[i]);
+  const persons = persons1;
+
+  const weekdays = {};
+  const dayNumbers = {};
+  for (let i = 0; i < 16; i++) {
+    weekdays[i+1] = String(cellVal(ws, 0, 1 + i) || '').trim();
+    const dn = cellVal(ws, 1, 1 + i);
+    dayNumbers[i+1] = dn != null ? Number(dn) : null;
+  }
+  for (let i = 0; i < 15; i++) {
+    weekdays[17+i] = String(cellVal(ws, 15, 1 + i) || '').trim();
+    const dn = cellVal(ws, 16, 1 + i);
+    dayNumbers[17+i] = dn != null ? Number(dn) : null;
+  }
+
+  const validDays = [];
+  for (let d = 1; d <= 31; d++) {
+    if (d <= 16) {
+      if (weekdays[d]) validDays.push(d);
+    } else {
+      if (weekdays[d] && (dayNumbers[d] === d || dayNumbers[d] === null)) validDays.push(d);
+    }
+  }
+
+  const shifts = {};
+  for (let d = 1; d <= 31; d++) shifts[d] = {};
+  for (let dayIdx = 0; dayIdx < 16; dayIdx++) {
+    for (let pIdx = 0; pIdx < persons.length; pIdx++) {
+      shifts[dayIdx + 1][persons[pIdx]] = cellVal(ws, 2 + pIdx, 1 + dayIdx);
+    }
+  }
+  for (let dayIdx = 0; dayIdx < 15; dayIdx++) {
+    for (let pIdx = 0; pIdx < persons.length; pIdx++) {
+      shifts[17 + dayIdx][persons[pIdx]] = cellVal(ws, 17 + pIdx, 1 + dayIdx);
+    }
+  }
+
+  return { persons, persons2, blockMismatch, shifts, weekdays, validDays };
+}
+
+function colLetters(n) {
+  let s = '';
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+function escXml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function createStyleRegistry() {
+  const fontKey = f => `${f.sz||11}|${f.name||'Calibri'}|${f.bold?1:0}`;
+  const fonts = [];
+  const fontMap = {};
+  function regFont(f = {}) {
+    const k = fontKey(f);
+    if (k in fontMap) return fontMap[k];
+    fonts.push({ sz: f.sz || 11, name: f.name || 'Calibri', bold: !!f.bold });
+    return fontMap[k] = fonts.length - 1;
+  }
+  regFont({});
+
+  const fills = [{ type: 'none' }, { type: 'gray125' }];
+  const fillMap = {};
+  function regFill(rgb) {
+    if (!rgb) return 0;
+    if (rgb in fillMap) return fillMap[rgb];
+    fills.push({ type: 'solid', rgb });
+    return fillMap[rgb] = fills.length - 1;
+  }
+
+  const borders = [{ none: true }, { thin: BORDER_RGB }];
+
+  const cellXfs = [];
+  const xfMap = {};
+  function regXf({ fontIdx = 0, fillIdx = 0, borderIdx = 0, alignment = null } = {}) {
+    const alignKey = alignment ? JSON.stringify(alignment) : '';
+    const k = `${fontIdx}|${fillIdx}|${borderIdx}|${alignKey}`;
+    if (k in xfMap) return xfMap[k];
+    cellXfs.push({ fontIdx, fillIdx, borderIdx, alignment });
+    return xfMap[k] = cellXfs.length - 1;
+  }
+  regXf();
+
+  function render() {
+    const fontsXml = fonts.map(f =>
+      `<font><sz val="${f.sz}"/><name val="${escXml(f.name)}"/>${f.bold?'<b/>':''}<family val="2"/></font>`
+    ).join('');
+
+    const fillsXml = fills.map(f => {
+      if (f.type === 'none') return `<fill><patternFill patternType="none"/></fill>`;
+      if (f.type === 'gray125') return `<fill><patternFill patternType="gray125"/></fill>`;
+      return `<fill><patternFill patternType="solid"><fgColor rgb="FF${f.rgb}"/><bgColor indexed="64"/></patternFill></fill>`;
+    }).join('');
+
+    const bordersXml = borders.map(b => {
+      if (b.none) return `<border><left/><right/><top/><bottom/><diagonal/></border>`;
+      const c = `<color rgb="FF${b.thin}"/>`;
+      return `<border><left style="thin">${c}</left><right style="thin">${c}</right><top style="thin">${c}</top><bottom style="thin">${c}</bottom><diagonal/></border>`;
+    }).join('');
+
+    const cellXfsXml = cellXfs.map(xf => {
+      const attrs = [
+        `numFmtId="0"`,
+        `fontId="${xf.fontIdx}"`,
+        `fillId="${xf.fillIdx}"`,
+        `borderId="${xf.borderIdx}"`,
+        `xfId="0"`,
+        xf.fontIdx ? `applyFont="1"` : '',
+        xf.fillIdx ? `applyFill="1"` : '',
+        xf.borderIdx ? `applyBorder="1"` : '',
+        xf.alignment ? `applyAlignment="1"` : ''
+      ].filter(Boolean).join(' ');
+      const align = xf.alignment
+        ? `<alignment ${Object.entries(xf.alignment).map(([k,v]) =>
+            `${k}="${typeof v === 'boolean' ? (v?'1':'0') : v}"`).join(' ')}/>`
+        : '';
+      return `<xf ${attrs}>${align}</xf>`;
+    }).join('');
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="${fonts.length}">${fontsXml}</fonts>
+<fills count="${fills.length}">${fillsXml}</fills>
+<borders count="${borders.length}">${bordersXml}</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="${cellXfs.length}">${cellXfsXml}</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+<dxfs count="0"/>
+<tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`;
+  }
+
+  return { regFont, regFill, regXf, render, thinBorderIdx: 1 };
+}
+
+function renderSheet(cells, cols, rows) {
+  const byRow = {};
+  for (const ref in cells) {
+    const m = ref.match(/^([A-Z]+)(\d+)$/);
+    const colStr = m[1], r = parseInt(m[2]);
+    let cIdx = 0;
+    for (let i = 0; i < colStr.length; i++) cIdx = cIdx * 26 + (colStr.charCodeAt(i) - 64);
+    if (!byRow[r]) byRow[r] = [];
+    byRow[r].push({ ref, cIdx, ...cells[ref] });
+  }
+
+  const rowsXml = Object.keys(byRow).sort((a,b)=>+a - +b).map(r => {
+    const rowCells = byRow[r].sort((a,b) => a.cIdx - b.cIdx);
+    const ht = rows && rows[+r - 1] ? ` ht="${rows[+r - 1]}" customHeight="1"` : '';
+    return `<row r="${r}"${ht}>${rowCells.map(c => {
+      const sAttr = c.s ? ` s="${c.s}"` : '';
+      if (c.v != null && c.v !== '') {
+        return `<c r="${c.ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${escXml(String(c.v))}</t></is></c>`;
+      }
+      return `<c r="${c.ref}"${sAttr}/>`;
+    }).join('')}</row>`;
+  }).join('');
+
+  const colsXml = cols && cols.length
+    ? `<cols>${cols.map((w, i) =>
+        `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols>`
+    : '';
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
+}
+
+async function buildXlsx({ persons, shifts, weekdays, validDays }) {
+  const colors = {};
+  const usedColors = new Set();
+  persons.forEach((p, i) => {
+    if (PALETTE[p]) {
+      colors[p] = PALETTE[p];
+    } else {
+      let pick = FALLBACK[i % FALLBACK.length];
+      let attempts = 0;
+      while (usedColors.has(pick) && attempts < FALLBACK.length) {
+        pick = FALLBACK[(i + ++attempts) % FALLBACK.length];
+      }
+      colors[p] = pick;
+    }
+    usedColors.add(colors[p]);
+  });
+
+  const styles = createStyleRegistry();
+  const N = persons.length;
+
+  const fontDefault = styles.regFont({});
+  const fontBold10 = styles.regFont({ bold: true, sz: 10 });
+  const fontBold9 = styles.regFont({ bold: true, sz: 9 });
+  const fontSmall = styles.regFont({ sz: 8 });
+  const fontTime = styles.regFont({ sz: 9 });
+  const border = styles.thinBorderIdx;
+
+  const fillDowWeek = styles.regFill(DOW_WEEK);
+  const fillDowWeekend = styles.regFill(DOW_WEEKEND);
+  const fillNeutral = styles.regFill(NEUTRAL);
+  const fillFerias = styles.regFill(FERIAS);
+  const fillFolga = styles.regFill(FOLGA);
+  const fillFolgaNoite = styles.regFill(FOLGA_NOITE);
+  const fillFormacao = styles.regFill(FORMACAO);
+  const fillOffWeekend = styles.regFill(OFF_WEEKEND);
+  const personFillIdx = {};
+  for (const p of persons) personFillIdx[p] = styles.regFill(colors[p]);
+
+  const alignCenter = { horizontal: 'center', vertical: 'center' };
+  const alignCenterWrap = { horizontal: 'center', vertical: 'center', wrapText: true };
+  const alignLeft = { horizontal: 'left', vertical: 'center' };
+
+  const xfHora = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
+  const xfDayWeekday = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignLeft });
+  const xfDayWeekend = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeekend, borderIdx: border, alignment: alignLeft });
+  const xfPersonHeader = {};
+  for (const p of persons) xfPersonHeader[p] = styles.regXf({ fontIdx: fontBold9, fillIdx: personFillIdx[p], borderIdx: border, alignment: alignCenter });
+  const xfTurnoHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
+  const xfTurnoFerias = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFerias, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoFolga = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFolga, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoFolgaNoite = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFolgaNoite, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoFormacao = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFormacao, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoOffWeekday = styles.regXf({ fontIdx: fontSmall, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoOffWeekend = styles.regXf({ fontIdx: fontSmall, fillIdx: fillOffWeekend, borderIdx: border, alignment: alignCenterWrap });
+  const xfTurnoPerson = {};
+  for (const p of persons) xfTurnoPerson[p] = styles.regXf({ fontIdx: fontSmall, fillIdx: personFillIdx[p], borderIdx: border, alignment: alignCenterWrap });
+  const xfTimeLabel = styles.regXf({ fontIdx: fontTime, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
+  const xfPaintedCell = {};
+  for (const p of persons) xfPaintedCell[p] = styles.regXf({ fillIdx: personFillIdx[p], borderIdx: border });
+  const xfEmptyCell = styles.regXf({ borderIdx: border });
+
+  const cells = {};
+  function put(r, c, v, s) {
+    cells[`${colLetters(c + 1)}${r + 1}`] = { v, s };
+  }
+
+  put(0, 0, 'Hora', xfHora);
+  validDays.forEach((day, dayIdx) => {
+    const dow = weekdays[day] || '';
+    const isWeekend = /^(Sáb|Dom|Sab)/i.test(dow);
+    const xf = isWeekend ? xfDayWeekend : xfDayWeekday;
+    const startCol = 1 + dayIdx * N;
+    for (let i = 0; i < N; i++) {
+      put(0, startCol + i, i === 0 ? `${dow} ${day}` : '', xf);
+    }
+  });
+
+  put(1, 0, '', xfEmptyCell);
+  validDays.forEach((day, dayIdx) => {
+    const startCol = 1 + dayIdx * N;
+    for (let i = 0; i < N; i++) put(1, startCol + i, persons[i], xfPersonHeader[persons[i]]);
+  });
+
+  put(2, 0, 'Turno', xfTurnoHeader);
+  const typoNotes = [];
+  validDays.forEach((day, dayIdx) => {
+    const dow = weekdays[day] || '';
+    const isWeekend = /^(Sáb|Dom|Sab)/i.test(dow);
+    const startCol = 1 + dayIdx * N;
+    for (let i = 0; i < N; i++) {
+      const p = persons[i];
+      const raw = shifts[day]?.[p];
+      const txt = (raw == null || String(raw).trim() === '') ? '-' : String(raw);
+      const kind = classifyShift(raw);
+      let xf;
+      if (kind === 'ferias') xf = xfTurnoFerias;
+      else if (kind === 'folga_noite') xf = xfTurnoFolgaNoite;
+      else if (kind === 'folga') xf = xfTurnoFolga;
+      else if (kind === 'formacao') xf = xfTurnoFormacao;
+      else if (kind === 'off') xf = isWeekend ? xfTurnoOffWeekend : xfTurnoOffWeekday;
+      else xf = xfTurnoPerson[p];
+
+      if (kind === 'work') {
+        const parsedShift = parseShift(raw);
+        if (parsedShift.typoNote) typoNotes.push(`Dia ${day}, ${p}: ${parsedShift.typoNote}`);
+      }
+
+      put(2, startCol + i, txt, xf);
+    }
+  });
+
+  TIME_SLOTS.forEach((slot, idx) => {
+    const row = 3 + idx;
+    const slotStart = 510 + idx * 30;
+    put(row, 0, slot, xfTimeLabel);
+    validDays.forEach((day, dayIdx) => {
+      const startCol = 1 + dayIdx * N;
+      for (let i = 0; i < N; i++) {
+        const p = persons[i];
+        const parsedShift = parseShift(shifts[day]?.[p]);
+        const working = parsedShift.intervals.some(([a, b]) => slotStart >= a && slotStart < b);
+        put(row, startCol + i, '', working ? xfPaintedCell[p] : xfEmptyCell);
+      }
+    });
+  });
+
+  const totalCols = 1 + validDays.length * N;
+  const colWidths = [12, ...Array(totalCols - 1).fill(4.5)];
+  const rowHeights = [22, 18, 38, ...Array(TIME_SLOTS.length).fill(16)];
+  const sheet1Xml = renderSheet(cells, colWidths, rowHeights);
+
+  // Legenda
+  const legCells = {};
+  const xfLegHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
+  const xfLegName = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: alignCenter });
+  const xfLegDesc = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: { horizontal: 'left', vertical: 'center', wrapText: true } });
+  const xfLegNote = styles.regXf({ fontIdx: fontDefault, alignment: { horizontal: 'left', vertical: 'center', wrapText: true } });
+
+  legCells['A1'] = { v: 'Colaborador', s: xfLegHeader };
+  legCells['B1'] = { v: 'Cor', s: xfLegHeader };
+  persons.forEach((p, i) => {
+    legCells[`A${i + 2}`] = { v: p, s: xfLegName };
+    legCells[`B${i + 2}`] = { v: '', s: xfPaintedCell[p] };
+  });
+  const codeStart = persons.length + 4;
+  legCells[`A${codeStart}`] = { v: 'Código', s: xfLegHeader };
+  legCells[`B${codeStart}`] = { v: 'Cor', s: xfLegHeader };
+  legCells[`C${codeStart}`] = { v: 'Significado', s: xfLegHeader };
+  const codes = [
+    { code: 'F1, F1/10…', fill: xfTurnoFerias, desc: 'Férias (com ou sem fração)' },
+    { code: 'f', fill: xfTurnoFolga, desc: 'Folga' },
+    { code: 'FN, FN 30/4', fill: xfTurnoFolgaNoite, desc: 'Folga da noite (com ou sem data)' },
+    { code: 'formação', fill: xfTurnoFormacao, desc: 'Formação' },
+    { code: '-', fill: xfTurnoOffWeekday, desc: 'Não trabalha (dia útil)' },
+    { code: '- (fim-de-semana)', fill: xfTurnoOffWeekend, desc: 'Não trabalha (sábado/domingo)' }
+  ];
+  codes.forEach((c, i) => {
+    legCells[`A${codeStart + 1 + i}`] = { v: c.code, s: xfLegName };
+    legCells[`B${codeStart + 1 + i}`] = { v: '', s: c.fill };
+    legCells[`C${codeStart + 1 + i}`] = { v: c.desc, s: xfLegDesc };
+  });
+  const notesStart = codeStart + codes.length + 3;
+  legCells[`A${notesStart}`] = { v: 'Notas', s: xfLegHeader };
+  const notes = [
+    'Grelha gerada de 08:30 às 22:00 em slots de 30 minutos.',
+    'Linha "Turno" mantém o texto original do ficheiro de entrada.',
+    'Anotações entre parêntesis (r) (e) (c) e asteriscos preservadas no texto mas ignoradas no parsing dos intervalos.',
+    '"+N" no fim de um turno indica turno de noite a seguir, não contabilizado na grelha.'
+  ];
+  notes.forEach((n, i) => { legCells[`A${notesStart + 1 + i}`] = { v: `• ${n}`, s: xfLegNote }; });
+
+  if (typoNotes.length) {
+    const typoStart = notesStart + notes.length + 3;
+    legCells[`A${typoStart}`] = { v: 'Correções automáticas (verifica)', s: xfLegHeader };
+    typoNotes.forEach((n, i) => { legCells[`A${typoStart + 1 + i}`] = { v: `• ${n}`, s: xfLegNote }; });
+  }
+
+  const sheet2Xml = renderSheet(legCells, [22, 12, 50], null);
+  const stylesXml = styles.render();
+
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`);
+
+  zip.file('_rels/.rels',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`);
+
+  zip.file('xl/workbook.xml',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>
+<sheet name="Grelha" sheetId="1" r:id="rId1"/>
+<sheet name="Legenda" sheetId="2" r:id="rId2"/>
+</sheets>
+</workbook>`);
+
+  zip.file('xl/_rels/workbook.xml.rels',
+`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`);
+
+  zip.file('xl/styles.xml', stylesXml);
+  zip.file('xl/worksheets/sheet1.xml', sheet1Xml);
+  zip.file('xl/worksheets/sheet2.xml', sheet2Xml);
+
+  const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return { blob, typoNotes, colors };
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function openInNewTab(blob) {
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    alert('O browser bloqueou a nova janela. Permite popups deste site e tenta outra vez, ou usa o botão "Descarregar grelha".');
+  }
+}
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file-input');
+const resultEl = document.getElementById('result');
+const step1 = document.getElementById('step-1');
+const step2 = document.getElementById('step-2');
+const step3 = document.getElementById('step-3');
+
+let lastBlob = null;
+let lastFilename = 'grelha-turnos.xlsx';
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+function showError(msg) {
+  step2.classList.remove('active');
+  step1.classList.add('active');
+  resultEl.classList.remove('hidden');
+  resultEl.innerHTML = `<div class="alert err">${escHtml(msg)}</div>`;
+}
+
+async function handleFile(file) {
+  if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
+    showError('As bibliotecas ainda estão a carregar. Tenta outra vez em 1-2 segundos.');
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    showError('O ficheiro tem de ser .xlsx');
+    return;
+  }
+  lastFilename = file.name.replace(/\.xlsx$/i, '_grelha.xlsx');
+  step1.classList.add('done'); step1.classList.remove('active');
+  step2.classList.add('active');
+  step3.classList.remove('active', 'done');
+  resultEl.classList.remove('hidden');
+  resultEl.innerHTML = '<div class="panel"><div class="panel-title">A processar</div><div><span class="spinner"></span>A ler e a pintar células…</div></div>';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const parsed = readSource(buf);
+    const result = await buildXlsx(parsed);
+    lastBlob = result.blob;
+
+    let working = 0, ferias = 0, folga = 0, folgaNoite = 0, formacao = 0, off = 0;
+    parsed.validDays.forEach(d => {
+      for (const p of parsed.persons) {
+        const v = parsed.shifts[d][p];
+        const k = classifyShift(v);
+        if (k === 'work') working++;
+        else if (k === 'ferias') ferias++;
+        else if (k === 'folga') folga++;
+        else if (k === 'folga_noite') folgaNoite++;
+        else if (k === 'formacao') formacao++;
+        else off++;
+      }
+    });
+
+    const persons = parsed.persons;
+    const colors = result.colors;
+    const unknown = persons.filter(p => !PALETTE[p]);
+
+    step2.classList.add('done'); step2.classList.remove('active');
+    step3.classList.add('active');
+
+    let alertsHtml = '';
+    if (parsed.blockMismatch) {
+      alertsHtml += `<div class="alert">Os colaboradores no bloco 1 (dias 1-16) e bloco 2 (dias 17-31) não são iguais. Usei a lista do bloco 1.<br><strong>Bloco 1:</strong> ${escHtml(parsed.persons.join(', '))}<br><strong>Bloco 2:</strong> ${escHtml(parsed.persons2.join(', '))}</div>`;
+    }
+    if (unknown.length) {
+      alertsHtml += `<div class="alert">Iniciais sem cor predefinida: <strong>${escHtml(unknown.join(', '))}</strong>. Atribuí cores pastel de reserva.</div>`;
+    }
+    if (result.typoNotes.length) {
+      alertsHtml += `<div class="alert info"><strong>Correções automáticas aplicadas</strong> (lista completa na folha "Legenda" do ficheiro):<ul>${result.typoNotes.slice(0, 5).map(n => `<li>${escHtml(n)}</li>`).join('')}${result.typoNotes.length > 5 ? `<li>… e mais ${result.typoNotes.length - 5}</li>` : ''}</ul></div>`;
+    }
+
+    resultEl.innerHTML = `
+      ${alertsHtml}
+      <div class="panel">
+        <div class="panel-title">Deteção</div>
+        <div class="meta-grid">
+          <div class="meta-item"><div class="meta-label">Colaboradores</div><div class="meta-value">${persons.length}</div></div>
+          <div class="meta-item"><div class="meta-label">Dias</div><div class="meta-value">${parsed.validDays.length}</div></div>
+          <div class="meta-item"><div class="meta-label">Turnos</div><div class="meta-value">${working}</div></div>
+          <div class="meta-item"><div class="meta-label">Férias</div><div class="meta-value">${ferias}</div></div>
+          <div class="meta-item"><div class="meta-label">Folgas</div><div class="meta-value">${folga + folgaNoite}</div></div>
+          ${formacao > 0 ? `<div class="meta-item"><div class="meta-label">Formação</div><div class="meta-value">${formacao}</div></div>` : ''}
+        </div>
+        <div class="persons">
+          ${persons.map(p => `<span class="chip"><span class="chip-swatch" style="background:#${colors[p]}"></span>${escHtml(p)}</span>`).join('')}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="dl-direct">Descarregar grelha <span class="btn-arrow">→</span></button>
+        <button class="btn secondary" id="dl-tab">Abrir em nova aba</button>
+      </div>
+    `;
+
+    document.getElementById('dl-direct').addEventListener('click', () => {
+      triggerDownload(lastBlob, lastFilename);
+      step3.classList.add('done'); step3.classList.remove('active');
+    });
+
+    document.getElementById('dl-tab').addEventListener('click', () => {
+      openInNewTab(lastBlob);
+      step3.classList.add('done'); step3.classList.remove('active');
+    });
+
+  } catch (err) {
+    console.error(err);
+    showError(err.message || 'Erro ao processar o ficheiro.');
+  }
+}
+</script>
+</body>
+</html>
