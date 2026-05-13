@@ -883,14 +883,6 @@ function triggerDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-function openInNewTab(blob) {
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank');
-  if (!win) {
-    alert('O browser bloqueou a nova janela. Permite popups deste site e tenta outra vez, ou usa o botão "Descarregar grelha".');
-  }
-}
-
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('file-input');
 const resultEl = document.getElementById('result');
@@ -992,17 +984,11 @@ async function handleFile(file) {
       </div>
       <div class="actions">
         <button class="btn" id="dl-direct">Descarregar grelha <span class="btn-arrow">→</span></button>
-        <button class="btn secondary" id="dl-tab">Abrir em nova aba</button>
       </div>
     `;
 
     document.getElementById('dl-direct').addEventListener('click', () => {
       triggerDownload(lastBlob, lastFilename);
-      step3.classList.add('done'); step3.classList.remove('active');
-    });
-
-    document.getElementById('dl-tab').addEventListener('click', () => {
-      openInNewTab(lastBlob);
       step3.classList.add('done'); step3.classList.remove('active');
     });
 
