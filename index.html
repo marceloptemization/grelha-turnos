@@ -117,6 +117,7 @@
   .step.done .step-label { color: var(--accent-bright); font-weight: 500; }
 
   .drop {
+    display: block;
     border: 1.5px dashed var(--rule);
     background: rgba(255,255,255,0.5);
     padding: 52px 32px;
@@ -126,11 +127,12 @@
     margin-bottom: 24px;
     border-radius: 2px;
   }
-  .drop:hover, .drop.over {
+  .drop:hover, .drop.over, .drop:focus-within {
     border-color: var(--accent-bright);
     background: rgba(255,255,255,0.85);
     transform: translateY(-1px);
   }
+  .drop:focus-within { outline: 2px solid var(--accent-bright); outline-offset: 4px; }
   .drop-icon {
     font-family: ui-serif, Georgia, serif;
     font-size: 38px;
@@ -148,7 +150,17 @@
     letter-spacing: 0.05em;
   }
 
-  #file-input { display: none; }
+  #file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
 
   .panel {
     background: rgba(255,255,255,0.6);
@@ -324,12 +336,12 @@
     <div class="step" id="step-3"><div class="step-num">03</div><div class="step-label">Descarregar grelha</div></div>
   </div>
 
-  <div class="drop" id="drop">
-    <div class="drop-icon">↑</div>
+  <label class="drop" id="drop" for="file-input">
+    <div class="drop-icon" aria-hidden="true">↑</div>
     <div class="drop-text">Arrasta o Excel para aqui</div>
     <div class="drop-sub">ou clica para escolher · .xlsx</div>
     <input type="file" id="file-input" accept=".xlsx" />
-  </div>
+  </label>
 
   <div id="result" class="hidden"></div>
 
@@ -495,6 +507,10 @@ function readSource(ab) {
     } else {
       if (weekdays[d] && (dayNumbers[d] === d || dayNumbers[d] === null)) validDays.push(d);
     }
+  }
+
+  if (validDays.length === 0) {
+    throw new Error('Não consegui detetar dias válidos. Confirma que a linha 1 tem os dias da semana (Seg, Ter, …) e a linha 2 os números dos dias.');
   }
 
   const shifts = {};
@@ -893,7 +909,6 @@ const step3 = document.getElementById('step-3');
 let lastBlob = null;
 let lastFilename = 'grelha-turnos.xlsx';
 
-drop.addEventListener('click', () => fileInput.click());
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', e => {
