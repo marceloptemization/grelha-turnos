@@ -4,7 +4,7 @@ Ferramenta web que converte o mapa mensal de turnos (Excel) numa grelha visual p
 
 ## Como usar
 
-1. Abre o site: `https://[teu-username].github.io/[nome-do-repo]/`
+1. Abre o site: <https://marceloptemization.github.io/grelha-turnos/>
 2. Arrasta o `.xlsx` mensal para a área de upload (ou clica para escolher)
 3. Confirma a deteção (colaboradores, dias, turnos)
 4. Descarrega a grelha em Excel
