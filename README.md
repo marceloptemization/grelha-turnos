@@ -13,9 +13,9 @@ Toda a lógica corre no browser — o ficheiro nunca sai do teu computador.
 
 ## Estrutura esperada do ficheiro de entrada
 
-- **Dois blocos verticais:** dias 1-16 (linhas 1-13) e dias 17-31 (linhas 16-28)
+- **Dois blocos verticais:** linhas 1-13 e linhas 16-28
 - **Linha 1 / linha 16:** dias da semana (Seg, Ter, …, Sáb, Dom)
-- **Linha 2 / linha 17:** números dos dias
+- **Linha 2 / linha 17:** números dos dias — lidos do ficheiro, funciona com qualquer corte (1-14/15-30, 1-16/17-31, etc.)
 - **Coluna A:** iniciais dos colaboradores
 - **Restantes células:** turnos em texto
 
