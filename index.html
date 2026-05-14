@@ -207,7 +207,81 @@
   }
   .chip-swatch { width: 18px; height: 18px; border: 1px solid rgba(0,0,0,0.1); }
 
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .ferias-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 18px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .ferias-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .ferias-input {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    padding: 6px 10px;
+    border: 1px solid var(--rule);
+    background: white;
+    width: 220px;
+    max-width: 100%;
+    border-radius: 2px;
+  }
+  .ferias-input:focus {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 1px;
+    border-color: var(--accent-bright);
+  }
+
+  .mode-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px 24px;
+    margin-top: 16px;
+  }
+  .mode-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .mode-row .chip { flex-shrink: 0; min-width: 62px; justify-content: flex-start; }
+  .mode-select {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    padding: 5px 8px;
+    border: 1px solid var(--rule);
+    background: white;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .mode-select:focus {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 1px;
+  }
+  .mode-hint {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-family: ui-monospace, monospace;
+    line-height: 1.5;
+  }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .actions .recalc-tag {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+    transition: opacity 0.2s ease;
+  }
+  .actions .recalc-tag.active { color: var(--accent); }
   .btn {
     display: inline-flex;
     align-items: center;
@@ -369,6 +443,18 @@ const PALETTE = {
   IM: 'FFF2CC', MA: 'E4DFEC', MO: 'D9EAD3', RL: 'DDEBF7',
   SA: 'F4CCCC', SP: 'D9EAD3', TA: 'CFE2F3', TM: 'FCE5CD'
 };
+// Regra de horas em domingos e feriados, por colaborador.
+// 'double' = horas contam a 2x (compensadas em tempo).
+// 'paid'   = horas não somam (pagas em dinheiro à parte).
+// 'normal' = horas contam a 1x.
+const MODE_DEFAULTS = { TA: 'double', SA: 'double', DC: 'double', RL: 'normal' };
+const MODE_OPTIONS = [
+  { value: 'double', label: 'Dobradas (×2)' },
+  { value: 'paid',   label: 'Pagas (não contam)' },
+  { value: 'normal', label: 'Normais (×1)' },
+];
+function defaultMode(person) { return MODE_DEFAULTS[person] || 'paid'; }
+function modeLabel(mode) { return (MODE_OPTIONS.find(o => o.value === mode) || MODE_OPTIONS[1]).label; }
 const FALLBACK = ['BDD7EE','F8CBAD','C6E0B4','FFE699','CC99FF','9DC3E6','F4B084','A9D08E','D5A6BD','B4A7D6'];
 const DOW_WEEK = 'D9EAF7';
 const DOW_WEEKEND = 'FCE5CD';
@@ -669,7 +755,10 @@ function renderSheet(cells, cols, rows) {
 ${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
 }
 
-async function buildXlsx({ persons, shifts, weekdays, validDays }) {
+async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
+  const modes = opts.modes || {};
+  const feriados = opts.feriados instanceof Set ? opts.feriados : new Set(opts.feriados || []);
+  const isSpecial = d => /^Dom/i.test(weekdays[d] || '') || feriados.has(d);
   const colors = {};
   const usedColors = new Set();
   persons.forEach((p, i) => {
@@ -836,7 +925,8 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
     'Grelha gerada de 08:30 às 22:00 em slots de 30 minutos.',
     'Linha "Turno" mantém o texto original do ficheiro de entrada.',
     'Anotações entre parêntesis (r) (e) (c) e asteriscos preservadas no texto mas ignoradas no parsing dos intervalos.',
-    '"+N" no fim de um turno indica turno de noite a seguir, não contabilizado na grelha.'
+    '"+N" no fim de um turno indica turno de noite a seguir, não contabilizado na grelha.',
+    'Folha "Totais": "H. a compensar" usa o modo dom/fer escolhido (Dobradas ×2, Pagas não somam, Normais ×1).'
   ];
   notes.forEach((n, i) => { legCells[`A${notesStart + 1 + i}`] = { v: `• ${n}`, s: xfLegNote }; });
 
@@ -848,26 +938,30 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
 
   const sheet2Xml = renderSheet(legCells, [22, 12, 50], null);
 
-  // Folha "Totais" — horas e dias por colaborador
+  // Folha "Totais" — horas e dias por colaborador, com modo dom/fer aplicado
   const totaisCells = {};
-  const totaisHeaders = ['Colaborador', 'Horas', 'Turnos', 'Folgas', 'Férias', 'F. noite', 'Formação'];
+  const totaisHeaders = ['Colaborador', 'Modo dom/fer', 'H. semana', 'H. dom/fer', 'H. a compensar', 'Turnos', 'Folgas', 'Férias', 'F. noite', 'Formação'];
   const xfTotaisHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
   const xfTotaisCell = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: alignCenter });
+  const xfTotaisCellLeft = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: { horizontal: 'left', vertical: 'center' } });
   const xfTotaisTotal = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
 
   totaisHeaders.forEach((h, i) => {
     totaisCells[`${colLetters(i + 1)}1`] = { v: h, s: xfTotaisHeader };
   });
 
-  const totals = { horas: 0, turnos: 0, folgas: 0, ferias: 0, fnoite: 0, formacao: 0 };
+  const totals = { weekH: 0, specialH: 0, toComp: 0, turnos: 0, folgas: 0, ferias: 0, fnoite: 0, formacao: 0 };
   persons.forEach((p, pi) => {
-    let horas = 0, turnos = 0, folgas = 0, ferias = 0, fnoite = 0, formacao = 0;
+    let weekMin = 0, specialMin = 0;
+    let turnos = 0, folgas = 0, ferias = 0, fnoite = 0, formacao = 0;
     validDays.forEach(d => {
       const raw = shifts[d]?.[p];
       const k = classifyShift(raw);
       if (k === 'work') {
         const { intervals } = parseShift(raw);
-        horas += intervals.reduce((sum, [a, b]) => sum + (b - a), 0) / 60;
+        const mins = intervals.reduce((sum, [a, b]) => sum + (b - a), 0);
+        if (isSpecial(d)) specialMin += mins;
+        else weekMin += mins;
         turnos += 1;
       }
       else if (k === 'ferias') ferias += 1;
@@ -876,16 +970,30 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
       else if (k === 'formacao') formacao += 1;
     });
 
-    const row = pi + 2;
-    totaisCells[`A${row}`] = { v: p, s: xfPersonHeader[p] };
-    totaisCells[`B${row}`] = { v: Math.round(horas * 10) / 10, s: xfTotaisCell };
-    totaisCells[`C${row}`] = { v: turnos, s: xfTotaisCell };
-    totaisCells[`D${row}`] = { v: folgas, s: xfTotaisCell };
-    totaisCells[`E${row}`] = { v: ferias, s: xfTotaisCell };
-    totaisCells[`F${row}`] = { v: fnoite, s: xfTotaisCell };
-    totaisCells[`G${row}`] = { v: formacao, s: xfTotaisCell };
+    const weekH = weekMin / 60;
+    const specialH = specialMin / 60;
+    const mode = modes[p] || defaultMode(p);
+    let toComp;
+    if (mode === 'double') toComp = weekH + 2 * specialH;
+    else if (mode === 'normal') toComp = weekH + specialH;
+    else toComp = weekH; // 'paid' — dom/fer não contam
 
-    totals.horas += horas;
+    const row = pi + 2;
+    const r1 = v => Math.round(v * 10) / 10;
+    totaisCells[`A${row}`] = { v: p, s: xfPersonHeader[p] };
+    totaisCells[`B${row}`] = { v: modeLabel(mode), s: xfTotaisCellLeft };
+    totaisCells[`C${row}`] = { v: r1(weekH), s: xfTotaisCell };
+    totaisCells[`D${row}`] = { v: r1(specialH), s: xfTotaisCell };
+    totaisCells[`E${row}`] = { v: r1(toComp), s: xfTotaisCell };
+    totaisCells[`F${row}`] = { v: turnos, s: xfTotaisCell };
+    totaisCells[`G${row}`] = { v: folgas, s: xfTotaisCell };
+    totaisCells[`H${row}`] = { v: ferias, s: xfTotaisCell };
+    totaisCells[`I${row}`] = { v: fnoite, s: xfTotaisCell };
+    totaisCells[`J${row}`] = { v: formacao, s: xfTotaisCell };
+
+    totals.weekH += weekH;
+    totals.specialH += specialH;
+    totals.toComp += toComp;
     totals.turnos += turnos;
     totals.folgas += folgas;
     totals.ferias += ferias;
@@ -894,15 +1002,25 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
   });
 
   const totalRow = persons.length + 2;
+  const r1 = v => Math.round(v * 10) / 10;
   totaisCells[`A${totalRow}`] = { v: 'TOTAL', s: xfTotaisTotal };
-  totaisCells[`B${totalRow}`] = { v: Math.round(totals.horas * 10) / 10, s: xfTotaisTotal };
-  totaisCells[`C${totalRow}`] = { v: totals.turnos, s: xfTotaisTotal };
-  totaisCells[`D${totalRow}`] = { v: totals.folgas, s: xfTotaisTotal };
-  totaisCells[`E${totalRow}`] = { v: totals.ferias, s: xfTotaisTotal };
-  totaisCells[`F${totalRow}`] = { v: totals.fnoite, s: xfTotaisTotal };
-  totaisCells[`G${totalRow}`] = { v: totals.formacao, s: xfTotaisTotal };
+  totaisCells[`B${totalRow}`] = { v: '', s: xfTotaisTotal };
+  totaisCells[`C${totalRow}`] = { v: r1(totals.weekH), s: xfTotaisTotal };
+  totaisCells[`D${totalRow}`] = { v: r1(totals.specialH), s: xfTotaisTotal };
+  totaisCells[`E${totalRow}`] = { v: r1(totals.toComp), s: xfTotaisTotal };
+  totaisCells[`F${totalRow}`] = { v: totals.turnos, s: xfTotaisTotal };
+  totaisCells[`G${totalRow}`] = { v: totals.folgas, s: xfTotaisTotal };
+  totaisCells[`H${totalRow}`] = { v: totals.ferias, s: xfTotaisTotal };
+  totaisCells[`I${totalRow}`] = { v: totals.fnoite, s: xfTotaisTotal };
+  totaisCells[`J${totalRow}`] = { v: totals.formacao, s: xfTotaisTotal };
 
-  const sheet3Xml = renderSheet(totaisCells, [16, 10, 10, 10, 10, 10, 12], null);
+  // Nota debaixo da tabela com a lista de feriados aplicados
+  if (feriados.size) {
+    const noteRow = totalRow + 2;
+    totaisCells[`A${noteRow}`] = { v: `Feriados aplicados: ${[...feriados].sort((a,b)=>a-b).join(', ')}`, s: xfTotaisCellLeft };
+  }
+
+  const sheet3Xml = renderSheet(totaisCells, [12, 22, 10, 11, 14, 8, 8, 8, 9, 10], null);
 
   const stylesXml = styles.render();
 
@@ -974,6 +1092,44 @@ const step3 = document.getElementById('step-3');
 
 let lastBlob = null;
 let lastFilename = 'grelha-turnos.xlsx';
+let parsedData = null;
+let currentColors = {};
+let currentModes = {};
+let currentFeriados = new Set();
+let rebuildBusy = false;
+let rebuildTimer = null;
+
+function parseFeriadosInput(str) {
+  const set = new Set();
+  if (!str) return set;
+  for (const tok of String(str).split(/[,\s;]+/)) {
+    const n = parseInt(tok, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 31) set.add(n);
+  }
+  return set;
+}
+
+async function rebuild() {
+  if (!parsedData || rebuildBusy) return;
+  rebuildBusy = true;
+  const dlBtn = document.getElementById('dl-direct');
+  const tag = document.getElementById('recalc-tag');
+  if (dlBtn) dlBtn.disabled = true;
+  if (tag) { tag.textContent = 'a recalcular…'; tag.classList.remove('active'); }
+  try {
+    const result = await buildXlsx(parsedData, { modes: currentModes, feriados: currentFeriados });
+    lastBlob = result.blob;
+    if (tag) { tag.textContent = 'atualizado'; tag.classList.add('active'); }
+  } finally {
+    rebuildBusy = false;
+    if (dlBtn) dlBtn.disabled = false;
+  }
+}
+
+function rebuildDebounced(delay = 250) {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(rebuild, delay);
+}
 
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -1012,7 +1168,11 @@ async function handleFile(file) {
   try {
     const buf = await file.arrayBuffer();
     const parsed = readSource(buf);
-    const result = await buildXlsx(parsed);
+    parsedData = parsed;
+    currentModes = Object.fromEntries(parsed.persons.map(p => [p, defaultMode(p)]));
+    currentFeriados = new Set();
+    const result = await buildXlsx(parsed, { modes: currentModes, feriados: currentFeriados });
+    currentColors = result.colors;
     lastBlob = result.blob;
 
     let working = 0, ferias = 0, folga = 0, folgaNoite = 0, formacao = 0, off = 0;
@@ -1059,18 +1219,49 @@ async function handleFile(file) {
           <div class="meta-item"><div class="meta-label">Folgas</div><div class="meta-value">${folga + folgaNoite}</div></div>
           ${formacao > 0 ? `<div class="meta-item"><div class="meta-label">Formação</div><div class="meta-value">${formacao}</div></div>` : ''}
         </div>
-        <div class="persons">
-          ${persons.map(p => `<span class="chip"><span class="chip-swatch" style="background:#${colors[p]}"></span>${escHtml(p)}</span>`).join('')}
+      </div>
+      <div class="panel">
+        <div class="panel-title">Domingos e feriados</div>
+        <div class="ferias-row">
+          <label class="ferias-label" for="feriados-input">Feriados (números dos dias)</label>
+          <input type="text" id="feriados-input" class="ferias-input" placeholder="ex: 10, 13" autocomplete="off">
+        </div>
+        <div class="mode-grid">
+          ${persons.map(p => `
+            <div class="mode-row">
+              <span class="chip"><span class="chip-swatch" style="background:#${colors[p]}"></span>${escHtml(p)}</span>
+              <select class="mode-select" data-person="${escHtml(p)}" aria-label="Modo dom/fer ${escHtml(p)}">
+                ${MODE_OPTIONS.map(o => `<option value="${o.value}"${currentModes[p] === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
+              </select>
+            </div>
+          `).join('')}
+        </div>
+        <div class="mode-hint">
+          <strong>Dobradas:</strong> horas em dom/fer contam a 2× &nbsp;·&nbsp;
+          <strong>Pagas:</strong> não somam (são pagas em $) &nbsp;·&nbsp;
+          <strong>Normais:</strong> contam a 1×.
+          Afeta só a coluna <em>H. a compensar</em> na folha Totais.
         </div>
       </div>
       <div class="actions">
         <button class="btn" id="dl-direct">Descarregar grelha <span class="btn-arrow">→</span></button>
+        <span class="recalc-tag active" id="recalc-tag">atualizado</span>
       </div>
     `;
 
     document.getElementById('dl-direct').addEventListener('click', () => {
       triggerDownload(lastBlob, lastFilename);
       step3.classList.add('done'); step3.classList.remove('active');
+    });
+    document.getElementById('feriados-input').addEventListener('input', (e) => {
+      currentFeriados = parseFeriadosInput(e.target.value);
+      rebuildDebounced();
+    });
+    document.querySelectorAll('.mode-select').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        currentModes[e.target.dataset.person] = e.target.value;
+        rebuild();
+      });
     });
 
   } catch (err) {

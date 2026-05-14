@@ -24,7 +24,7 @@ Toda a lógica corre no browser — o ficheiro nunca sai do teu computador.
 | Código | Significado |
 |---|---|
 | `9-13`, `9-13+15-19` | Turnos normais (intervalos separados por `+`) |
-| `8.30-12.30` | Minutos com ponto ou dois pontos (`9:30` = `9.30`) |
+| `8.30-12.30`, `19,30-22` | Minutos com ponto, dois pontos ou vírgula (`9:30` = `9.30` = `9,30`) |
 | `F1`, `F2`, `F1/10` | Férias (com ou sem fração de tipo "1 de 10") |
 | `f` | Folga |
 | `FN`, `FN 30/4` | Folga da noite (com ou sem data) |
@@ -60,6 +60,26 @@ A app deteta e corrige automaticamente padrões prováveis de typo, listando-os 
 | TM | Laranja claro |
 
 Colaboradores fora desta lista recebem uma cor pastel de reserva automaticamente.
+
+## Domingos e feriados
+
+A folha **Totais** calcula uma coluna *H. a compensar* que aplica uma regra por colaborador para horas trabalhadas em domingos e feriados. Os domingos são detetados automaticamente; os feriados são introduzidos no campo da página (lista de números de dias do mês, ex.: `10, 13`).
+
+Modos disponíveis:
+
+| Modo | Efeito sobre horas em dom/fer |
+|---|---|
+| **Dobradas (×2)** | Contam a dobrar (compensadas em tempo) |
+| **Pagas (não contam)** | Não somam (são pagas em dinheiro à parte) |
+| **Normais (×1)** | Contam normalmente |
+
+Preset por iniciais:
+
+- `TA`, `SA`, `DC` → Dobradas
+- `RL` → Normais
+- Todos os outros → Pagas
+
+O preset é só o ponto de partida — cada colaborador pode ser alterado individualmente antes de descarregar.
 
 ## Deploy no GitHub Pages
 
