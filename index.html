@@ -387,7 +387,7 @@ for (let m = 510; m < 1320; m += 30) {
 }
 
 function parseTime(t) {
-  t = String(t).replace(':','.').trim();
+  t = String(t).replace(':','.').replace(',','.').trim();
   if (t.includes('.')) {
     const [h, mm] = t.split('.');
     return parseInt(h)*60 + parseInt(mm);
@@ -449,12 +449,12 @@ function parseShift(raw) {
 
   const out = [];
   for (const part of s.split('+')) {
-    const m = part.trim().match(/(\d+(?:[.:]\d+)?)\s*-+\s*(\d+(?:[.:]\d+)?)/);
+    const m = part.trim().match(/(\d+(?:[.,:]\d+)?)\s*-+\s*(\d+(?:[.,:]\d+)?)/);
     if (m) {
       try {
         const a = parseTime(m[1]);
         const b = parseTime(m[2]);
-        if (b > a) out.push([Math.max(a, 510), Math.min(b, 1320)]);
+        if (b > a) out.push([a, b]);
       } catch(e) {}
     }
   }
@@ -650,6 +650,9 @@ function renderSheet(cells, cols, rows) {
     return `<row r="${r}"${ht}>${rowCells.map(c => {
       const sAttr = c.s ? ` s="${c.s}"` : '';
       if (c.v != null && c.v !== '') {
+        if (typeof c.v === 'number' && Number.isFinite(c.v)) {
+          return `<c r="${c.ref}"${sAttr}><v>${c.v}</v></c>`;
+        }
         return `<c r="${c.ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${escXml(String(c.v))}</t></is></c>`;
       }
       return `<c r="${c.ref}"${sAttr}/>`;
@@ -844,6 +847,63 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
   }
 
   const sheet2Xml = renderSheet(legCells, [22, 12, 50], null);
+
+  // Folha "Totais" — horas e dias por colaborador
+  const totaisCells = {};
+  const totaisHeaders = ['Colaborador', 'Horas', 'Turnos', 'Folgas', 'Férias', 'F. noite', 'Formação'];
+  const xfTotaisHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
+  const xfTotaisCell = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: alignCenter });
+  const xfTotaisTotal = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
+
+  totaisHeaders.forEach((h, i) => {
+    totaisCells[`${colLetters(i + 1)}1`] = { v: h, s: xfTotaisHeader };
+  });
+
+  const totals = { horas: 0, turnos: 0, folgas: 0, ferias: 0, fnoite: 0, formacao: 0 };
+  persons.forEach((p, pi) => {
+    let horas = 0, turnos = 0, folgas = 0, ferias = 0, fnoite = 0, formacao = 0;
+    validDays.forEach(d => {
+      const raw = shifts[d]?.[p];
+      const k = classifyShift(raw);
+      if (k === 'work') {
+        const { intervals } = parseShift(raw);
+        horas += intervals.reduce((sum, [a, b]) => sum + (b - a), 0) / 60;
+        turnos += 1;
+      }
+      else if (k === 'ferias') ferias += 1;
+      else if (k === 'folga') folgas += 1;
+      else if (k === 'folga_noite') fnoite += 1;
+      else if (k === 'formacao') formacao += 1;
+    });
+
+    const row = pi + 2;
+    totaisCells[`A${row}`] = { v: p, s: xfPersonHeader[p] };
+    totaisCells[`B${row}`] = { v: Math.round(horas * 10) / 10, s: xfTotaisCell };
+    totaisCells[`C${row}`] = { v: turnos, s: xfTotaisCell };
+    totaisCells[`D${row}`] = { v: folgas, s: xfTotaisCell };
+    totaisCells[`E${row}`] = { v: ferias, s: xfTotaisCell };
+    totaisCells[`F${row}`] = { v: fnoite, s: xfTotaisCell };
+    totaisCells[`G${row}`] = { v: formacao, s: xfTotaisCell };
+
+    totals.horas += horas;
+    totals.turnos += turnos;
+    totals.folgas += folgas;
+    totals.ferias += ferias;
+    totals.fnoite += fnoite;
+    totals.formacao += formacao;
+  });
+
+  const totalRow = persons.length + 2;
+  totaisCells[`A${totalRow}`] = { v: 'TOTAL', s: xfTotaisTotal };
+  totaisCells[`B${totalRow}`] = { v: Math.round(totals.horas * 10) / 10, s: xfTotaisTotal };
+  totaisCells[`C${totalRow}`] = { v: totals.turnos, s: xfTotaisTotal };
+  totaisCells[`D${totalRow}`] = { v: totals.folgas, s: xfTotaisTotal };
+  totaisCells[`E${totalRow}`] = { v: totals.ferias, s: xfTotaisTotal };
+  totaisCells[`F${totalRow}`] = { v: totals.fnoite, s: xfTotaisTotal };
+  totaisCells[`G${totalRow}`] = { v: totals.formacao, s: xfTotaisTotal };
+
+  const sheet3Xml = renderSheet(totaisCells, [16, 10, 10, 10, 10, 10, 12], null);
+
   const stylesXml = styles.render();
 
   const zip = new JSZip();
@@ -855,6 +915,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
 <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
 <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
 <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`);
 
@@ -869,6 +930,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets>
 <sheet name="Grelha" sheetId="1" r:id="rId1"/>
+<sheet name="Totais" sheetId="3" r:id="rId3"/>
 <sheet name="Legenda" sheetId="2" r:id="rId2"/>
 </sheets>
 </workbook>`);
@@ -878,12 +940,14 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
-<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
+<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`);
 
   zip.file('xl/styles.xml', stylesXml);
   zip.file('xl/worksheets/sheet1.xml', sheet1Xml);
   zip.file('xl/worksheets/sheet2.xml', sheet2Xml);
+  zip.file('xl/worksheets/sheet3.xml', sheet3Xml);
 
   const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return { blob, typoNotes, colors };

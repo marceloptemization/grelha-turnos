@@ -1,6 +1,6 @@
 # Grelha de turnos · Farmácia Faria
 
-Ferramenta web que converte o mapa mensal de turnos (Excel) numa grelha visual pintada de 30 em 30 minutos, das 08:30 às 22:00, uma célula por colaborador.
+Ferramenta web que converte o mapa mensal de turnos (Excel) numa grelha visual pintada de 30 em 30 minutos, das 08:30 às 22:00, uma célula por colaborador. O ficheiro final tem três separadores: **Grelha** (visão pintada), **Totais** (horas e dias por colaborador) e **Legenda**.
 
 ## Como usar
 
