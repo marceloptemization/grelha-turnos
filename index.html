@@ -237,6 +237,12 @@
     outline-offset: 1px;
     border-color: var(--accent-bright);
   }
+  .ferias-auto {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
 
   .mode-grid {
     display: grid;
@@ -552,8 +558,23 @@ function cellVal(ws, r, c) {
   return ws[ref] ? ws[ref].v : undefined;
 }
 
+function cellFillRgb(ws, r, c) {
+  const ref = XLSX.utils.encode_cell({ r, c });
+  const s = ws[ref]?.s;
+  if (!s || s.patternType !== 'solid') return null;
+  const rgb = s.fgColor?.rgb;
+  if (!rgb) return null;
+  return (rgb.length === 8 ? rgb.slice(2) : rgb).toUpperCase();
+}
+
+// Cores que marcam um dia especial (domingo / feriado) no ficheiro de entrada.
+// Excel padrão: laranja FFC000, vermelho FF0000. Amarelo (FFFF00) é
+// ignorado de propósito — costuma marcar outra coisa.
+const SPECIAL_FILL_RE = /^(FF0000|C00000|FFC000|FFA500|FF8000|FF6600|F4B084|FCE5CD|F8CBAD)$/;
+function isSpecialFill(rgb) { return !!rgb && SPECIAL_FILL_RE.test(rgb); }
+
 function readSource(ab) {
-  const wb = XLSX.read(ab, { type: 'array' });
+  const wb = XLSX.read(ab, { type: 'array', cellStyles: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
 
   const persons1 = [];
@@ -614,7 +635,21 @@ function readSource(ab) {
   }
   validDays.sort((a, b) => a - b);
 
-  return { persons, persons2, blockMismatch, shifts, weekdays, validDays };
+  // Deteção automática de feriados: dias cujas células dos colaboradores
+  // estão maioritariamente pintadas de cores quentes (laranja/vermelho).
+  // Excluímos domingos porque já são detetados pelo nome do dia.
+  const markedFeriados = new Set();
+  const threshold = Math.max(1, Math.ceil(persons.length / 2));
+  for (const d of allDays) {
+    if (/^Dom/i.test(d.weekday)) continue;
+    let hits = 0;
+    for (let pIdx = 0; pIdx < persons.length; pIdx++) {
+      if (isSpecialFill(cellFillRgb(ws, d.firstPersonRow + pIdx, d.col))) hits++;
+    }
+    if (hits >= threshold) markedFeriados.add(d.day);
+  }
+
+  return { persons, persons2, blockMismatch, shifts, weekdays, validDays, markedFeriados };
 }
 
 function colLetters(n) {
@@ -1170,7 +1205,7 @@ async function handleFile(file) {
     const parsed = readSource(buf);
     parsedData = parsed;
     currentModes = Object.fromEntries(parsed.persons.map(p => [p, defaultMode(p)]));
-    currentFeriados = new Set();
+    currentFeriados = new Set(parsed.markedFeriados || []);
     const result = await buildXlsx(parsed, { modes: currentModes, feriados: currentFeriados });
     currentColors = result.colors;
     lastBlob = result.blob;
@@ -1224,7 +1259,8 @@ async function handleFile(file) {
         <div class="panel-title">Domingos e feriados</div>
         <div class="ferias-row">
           <label class="ferias-label" for="feriados-input">Feriados (números dos dias)</label>
-          <input type="text" id="feriados-input" class="ferias-input" placeholder="ex: 10, 13" autocomplete="off">
+          <input type="text" id="feriados-input" class="ferias-input" placeholder="ex: 10, 13" autocomplete="off" value="${[...currentFeriados].sort((a,b)=>a-b).join(', ')}">
+          ${currentFeriados.size ? `<span class="ferias-auto">detetados das células laranja/vermelhas</span>` : ''}
         </div>
         <div class="mode-grid">
           ${persons.map(p => `
