@@ -81,6 +81,10 @@ Preset por iniciais:
 
 O preset é só o ponto de partida — cada colaborador pode ser alterado individualmente antes de descarregar.
 
+## Folgas de noite (FN)
+
+Cada dia classificado como `FN` na folha original soma um valor configurável à coluna *H. a compensar*. Preset: **8h por cada FN**, excepto **MA** que conta **4h**. O valor é editável por colaborador no campo `FN __ h` da página.
+
 ## Deploy no GitHub Pages
 
 1. Cria um repositório público (ex: `grelha-turnos`)

@@ -267,9 +267,28 @@
     cursor: pointer;
     border-radius: 2px;
   }
-  .mode-select:focus {
+  .mode-select:focus, .fn-input:focus {
     outline: 2px solid var(--accent-bright);
     outline-offset: 1px;
+  }
+  .fn-input-wrap {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+  .fn-input {
+    width: 42px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    padding: 4px 6px;
+    border: 1px solid var(--rule);
+    background: white;
+    text-align: right;
+    border-radius: 2px;
   }
   .mode-hint {
     margin-top: 14px;
@@ -461,6 +480,10 @@ const MODE_OPTIONS = [
 ];
 function defaultMode(person) { return MODE_DEFAULTS[person] || 'paid'; }
 function modeLabel(mode) { return (MODE_OPTIONS.find(o => o.value === mode) || MODE_OPTIONS[1]).label; }
+// Cada dia de folga de noite (FN) acrescenta N horas a compensar.
+// Default 8h, MA 4h. Ajustável por colaborador.
+const FN_DEFAULTS = { MA: 4 };
+function defaultFNHours(person) { return FN_DEFAULTS[person] ?? 8; }
 const FALLBACK = ['BDD7EE','F8CBAD','C6E0B4','FFE699','CC99FF','9DC3E6','F4B084','A9D08E','D5A6BD','B4A7D6'];
 const DOW_WEEK = 'D9EAF7';
 const DOW_WEEKEND = 'FCE5CD';
@@ -689,7 +712,25 @@ function createStyleRegistry() {
     return fillMap[rgb] = fills.length - 1;
   }
 
-  const borders = [{ none: true }, { thin: BORDER_RGB }];
+  // Borders: spec é { left, right, top, bottom } com valores 'none' | 'thin' | 'medium'.
+  // Índice 0 = todos none. Índice 1 = todos thin (compatibilidade).
+  const borders = [
+    { left: 'none', right: 'none', top: 'none', bottom: 'none' },
+    { left: 'thin', right: 'thin', top: 'thin', bottom: 'thin' },
+  ];
+  const borderMap = { ['none|none|none|none']: 0, ['thin|thin|thin|thin']: 1 };
+  function regBorder(spec = {}) {
+    const n = {
+      left: spec.left || 'none',
+      right: spec.right || 'none',
+      top: spec.top || 'none',
+      bottom: spec.bottom || 'none',
+    };
+    const k = `${n.left}|${n.right}|${n.top}|${n.bottom}`;
+    if (k in borderMap) return borderMap[k];
+    borders.push(n);
+    return borderMap[k] = borders.length - 1;
+  }
 
   const cellXfs = [];
   const xfMap = {};
@@ -714,9 +755,9 @@ function createStyleRegistry() {
     }).join('');
 
     const bordersXml = borders.map(b => {
-      if (b.none) return `<border><left/><right/><top/><bottom/><diagonal/></border>`;
-      const c = `<color rgb="FF${b.thin}"/>`;
-      return `<border><left style="thin">${c}</left><right style="thin">${c}</right><top style="thin">${c}</top><bottom style="thin">${c}</bottom><diagonal/></border>`;
+      const color = `<color rgb="FF${BORDER_RGB}"/>`;
+      const side = (name, style) => style === 'none' ? `<${name}/>` : `<${name} style="${style}">${color}</${name}>`;
+      return `<border>${side('left', b.left)}${side('right', b.right)}${side('top', b.top)}${side('bottom', b.bottom)}<diagonal/></border>`;
     }).join('');
 
     const cellXfsXml = cellXfs.map(xf => {
@@ -751,7 +792,7 @@ function createStyleRegistry() {
 </styleSheet>`;
   }
 
-  return { regFont, regFill, regXf, render, thinBorderIdx: 1 };
+  return { regFont, regFill, regXf, regBorder, render, thinBorderIdx: 1 };
 }
 
 function renderSheet(cells, cols, rows) {
@@ -792,6 +833,7 @@ ${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
 
 async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   const modes = opts.modes || {};
+  const fnHours = opts.fnHours || {};
   const feriados = opts.feriados instanceof Set ? opts.feriados : new Set(opts.feriados || []);
   const isSpecial = d => /^Dom/i.test(weekdays[d] || '') || feriados.has(d);
   const colors = {};
@@ -835,24 +877,46 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   const alignCenterWrap = { horizontal: 'center', vertical: 'center', wrapText: true };
   const alignLeft = { horizontal: 'left', vertical: 'center' };
 
+  // XFs estáticos (borda thin) — usados na coluna A da grelha e nas folhas Totais/Legenda.
   const xfHora = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
-  const xfDayWeekday = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignLeft });
-  const xfDayWeekend = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeekend, borderIdx: border, alignment: alignLeft });
+  const xfTurnoHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
+  const xfTimeLabel = styles.regXf({ fontIdx: fontTime, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
   const xfPersonHeader = {};
   for (const p of persons) xfPersonHeader[p] = styles.regXf({ fontIdx: fontBold9, fillIdx: personFillIdx[p], borderIdx: border, alignment: alignCenter });
-  const xfTurnoHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
-  const xfTurnoFerias = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFerias, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoFolga = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFolga, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoFolgaNoite = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFolgaNoite, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoFormacao = styles.regXf({ fontIdx: fontSmall, fillIdx: fillFormacao, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoOffWeekday = styles.regXf({ fontIdx: fontSmall, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoOffWeekend = styles.regXf({ fontIdx: fontSmall, fillIdx: fillOffWeekend, borderIdx: border, alignment: alignCenterWrap });
-  const xfTurnoPerson = {};
-  for (const p of persons) xfTurnoPerson[p] = styles.regXf({ fontIdx: fontSmall, fillIdx: personFillIdx[p], borderIdx: border, alignment: alignCenterWrap });
-  const xfTimeLabel = styles.regXf({ fontIdx: fontTime, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
   const xfPaintedCell = {};
   for (const p of persons) xfPaintedCell[p] = styles.regXf({ fillIdx: personFillIdx[p], borderIdx: border });
   const xfEmptyCell = styles.regXf({ borderIdx: border });
+
+  // Base styles (sem borderIdx) para as células da grelha em colunas >= 1.
+  // Combinadas com gridXf para gerar bordas medium nos limites de cada dia.
+  const baseDayWeekday = { fontIdx: fontBold10, fillIdx: fillDowWeek, alignment: alignLeft };
+  const baseDayWeekend = { fontIdx: fontBold10, fillIdx: fillDowWeekend, alignment: alignLeft };
+  const basePersonHeaderByP = {};
+  for (const p of persons) basePersonHeaderByP[p] = { fontIdx: fontBold9, fillIdx: personFillIdx[p], alignment: alignCenter };
+  const baseTurnoFerias = { fontIdx: fontSmall, fillIdx: fillFerias, alignment: alignCenterWrap };
+  const baseTurnoFolga = { fontIdx: fontSmall, fillIdx: fillFolga, alignment: alignCenterWrap };
+  const baseTurnoFolgaNoite = { fontIdx: fontSmall, fillIdx: fillFolgaNoite, alignment: alignCenterWrap };
+  const baseTurnoFormacao = { fontIdx: fontSmall, fillIdx: fillFormacao, alignment: alignCenterWrap };
+  const baseTurnoOffWeekday = { fontIdx: fontSmall, fillIdx: fillNeutral, alignment: alignCenterWrap };
+  const baseTurnoOffWeekend = { fontIdx: fontSmall, fillIdx: fillOffWeekend, alignment: alignCenterWrap };
+  const baseTurnoPersonByP = {};
+  for (const p of persons) baseTurnoPersonByP[p] = { fontIdx: fontSmall, fillIdx: personFillIdx[p], alignment: alignCenterWrap };
+  const basePaintedByP = {};
+  for (const p of persons) basePaintedByP[p] = { fillIdx: personFillIdx[p] };
+  const baseEmpty = {};
+
+  const LAST_GRID_ROW = 2 + TIME_SLOTS.length; // 0=dia, 1=pessoa, 2=turno, 3..3+slots-1 = slots
+  function gridBorder(rowIdx, colInDay) {
+    return styles.regBorder({
+      left:   colInDay === 0     ? 'medium' : 'thin',
+      right:  colInDay === N - 1 ? 'medium' : 'thin',
+      top:    rowIdx === 0       ? 'medium' : 'thin',
+      bottom: rowIdx === LAST_GRID_ROW ? 'medium' : 'thin',
+    });
+  }
+  function gridXf(base, rowIdx, colInDay) {
+    return styles.regXf({ ...base, borderIdx: gridBorder(rowIdx, colInDay) });
+  }
 
   const cells = {};
   function put(r, c, v, s) {
@@ -863,17 +927,17 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   validDays.forEach((day, dayIdx) => {
     const dow = weekdays[day] || '';
     const isWeekend = /^(Sáb|Dom|Sab)/i.test(dow);
-    const xf = isWeekend ? xfDayWeekend : xfDayWeekday;
+    const base = isWeekend ? baseDayWeekend : baseDayWeekday;
     const startCol = 1 + dayIdx * N;
     for (let i = 0; i < N; i++) {
-      put(0, startCol + i, i === 0 ? `${dow} ${day}` : '', xf);
+      put(0, startCol + i, i === 0 ? `${dow} ${day}` : '', gridXf(base, 0, i));
     }
   });
 
   put(1, 0, '', xfEmptyCell);
   validDays.forEach((day, dayIdx) => {
     const startCol = 1 + dayIdx * N;
-    for (let i = 0; i < N; i++) put(1, startCol + i, persons[i], xfPersonHeader[persons[i]]);
+    for (let i = 0; i < N; i++) put(1, startCol + i, persons[i], gridXf(basePersonHeaderByP[persons[i]], 1, i));
   });
 
   put(2, 0, 'Turno', xfTurnoHeader);
@@ -887,20 +951,20 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
       const raw = shifts[day]?.[p];
       const txt = (raw == null || String(raw).trim() === '') ? '-' : String(raw);
       const kind = classifyShift(raw);
-      let xf;
-      if (kind === 'ferias') xf = xfTurnoFerias;
-      else if (kind === 'folga_noite') xf = xfTurnoFolgaNoite;
-      else if (kind === 'folga') xf = xfTurnoFolga;
-      else if (kind === 'formacao') xf = xfTurnoFormacao;
-      else if (kind === 'off') xf = isWeekend ? xfTurnoOffWeekend : xfTurnoOffWeekday;
-      else xf = xfTurnoPerson[p];
+      let base;
+      if (kind === 'ferias') base = baseTurnoFerias;
+      else if (kind === 'folga_noite') base = baseTurnoFolgaNoite;
+      else if (kind === 'folga') base = baseTurnoFolga;
+      else if (kind === 'formacao') base = baseTurnoFormacao;
+      else if (kind === 'off') base = isWeekend ? baseTurnoOffWeekend : baseTurnoOffWeekday;
+      else base = baseTurnoPersonByP[p];
 
       if (kind === 'work') {
         const parsedShift = parseShift(raw);
         if (parsedShift.typoNote) typoNotes.push(`Dia ${day}, ${p}: ${parsedShift.typoNote}`);
       }
 
-      put(2, startCol + i, txt, xf);
+      put(2, startCol + i, txt, gridXf(base, 2, i));
     }
   });
 
@@ -914,7 +978,8 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
         const p = persons[i];
         const parsedShift = parseShift(shifts[day]?.[p]);
         const working = parsedShift.intervals.some(([a, b]) => slotStart >= a && slotStart < b);
-        put(row, startCol + i, '', working ? xfPaintedCell[p] : xfEmptyCell);
+        const base = working ? basePaintedByP[p] : baseEmpty;
+        put(row, startCol + i, '', gridXf(base, row, i));
       }
     });
   });
@@ -973,9 +1038,9 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
 
   const sheet2Xml = renderSheet(legCells, [22, 12, 50], null);
 
-  // Folha "Totais" — horas e dias por colaborador, com modo dom/fer aplicado
+  // Folha "Totais" — horas e dias por colaborador, com modo dom/fer + FN aplicado
   const totaisCells = {};
-  const totaisHeaders = ['Colaborador', 'Modo dom/fer', 'H. semana', 'H. dom/fer', 'H. a compensar', 'Turnos', 'Folgas', 'Férias', 'F. noite', 'Formação'];
+  const totaisHeaders = ['Colaborador', 'Modo dom/fer', 'FN +h/dia', 'H. semana', 'H. dom/fer', 'H. a compensar', 'Turnos', 'Folgas', 'Férias', 'F. noite', 'Formação'];
   const xfTotaisHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
   const xfTotaisCell = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: alignCenter });
   const xfTotaisCellLeft = styles.regXf({ fontIdx: fontDefault, borderIdx: border, alignment: { horizontal: 'left', vertical: 'center' } });
@@ -1008,23 +1073,27 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     const weekH = weekMin / 60;
     const specialH = specialMin / 60;
     const mode = modes[p] || defaultMode(p);
+    const fnPerDay = Number.isFinite(fnHours[p]) ? fnHours[p] : defaultFNHours(p);
+    const fnContribution = fnoite * fnPerDay;
     let toComp;
     if (mode === 'double') toComp = weekH + 2 * specialH;
     else if (mode === 'normal') toComp = weekH + specialH;
     else toComp = weekH; // 'paid' — dom/fer não contam
+    toComp += fnContribution;
 
     const row = pi + 2;
     const r1 = v => Math.round(v * 10) / 10;
     totaisCells[`A${row}`] = { v: p, s: xfPersonHeader[p] };
     totaisCells[`B${row}`] = { v: modeLabel(mode), s: xfTotaisCellLeft };
-    totaisCells[`C${row}`] = { v: r1(weekH), s: xfTotaisCell };
-    totaisCells[`D${row}`] = { v: r1(specialH), s: xfTotaisCell };
-    totaisCells[`E${row}`] = { v: r1(toComp), s: xfTotaisCell };
-    totaisCells[`F${row}`] = { v: turnos, s: xfTotaisCell };
-    totaisCells[`G${row}`] = { v: folgas, s: xfTotaisCell };
-    totaisCells[`H${row}`] = { v: ferias, s: xfTotaisCell };
-    totaisCells[`I${row}`] = { v: fnoite, s: xfTotaisCell };
-    totaisCells[`J${row}`] = { v: formacao, s: xfTotaisCell };
+    totaisCells[`C${row}`] = { v: r1(fnPerDay), s: xfTotaisCell };
+    totaisCells[`D${row}`] = { v: r1(weekH), s: xfTotaisCell };
+    totaisCells[`E${row}`] = { v: r1(specialH), s: xfTotaisCell };
+    totaisCells[`F${row}`] = { v: r1(toComp), s: xfTotaisCell };
+    totaisCells[`G${row}`] = { v: turnos, s: xfTotaisCell };
+    totaisCells[`H${row}`] = { v: folgas, s: xfTotaisCell };
+    totaisCells[`I${row}`] = { v: ferias, s: xfTotaisCell };
+    totaisCells[`J${row}`] = { v: fnoite, s: xfTotaisCell };
+    totaisCells[`K${row}`] = { v: formacao, s: xfTotaisCell };
 
     totals.weekH += weekH;
     totals.specialH += specialH;
@@ -1040,14 +1109,15 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   const r1 = v => Math.round(v * 10) / 10;
   totaisCells[`A${totalRow}`] = { v: 'TOTAL', s: xfTotaisTotal };
   totaisCells[`B${totalRow}`] = { v: '', s: xfTotaisTotal };
-  totaisCells[`C${totalRow}`] = { v: r1(totals.weekH), s: xfTotaisTotal };
-  totaisCells[`D${totalRow}`] = { v: r1(totals.specialH), s: xfTotaisTotal };
-  totaisCells[`E${totalRow}`] = { v: r1(totals.toComp), s: xfTotaisTotal };
-  totaisCells[`F${totalRow}`] = { v: totals.turnos, s: xfTotaisTotal };
-  totaisCells[`G${totalRow}`] = { v: totals.folgas, s: xfTotaisTotal };
-  totaisCells[`H${totalRow}`] = { v: totals.ferias, s: xfTotaisTotal };
-  totaisCells[`I${totalRow}`] = { v: totals.fnoite, s: xfTotaisTotal };
-  totaisCells[`J${totalRow}`] = { v: totals.formacao, s: xfTotaisTotal };
+  totaisCells[`C${totalRow}`] = { v: '', s: xfTotaisTotal };
+  totaisCells[`D${totalRow}`] = { v: r1(totals.weekH), s: xfTotaisTotal };
+  totaisCells[`E${totalRow}`] = { v: r1(totals.specialH), s: xfTotaisTotal };
+  totaisCells[`F${totalRow}`] = { v: r1(totals.toComp), s: xfTotaisTotal };
+  totaisCells[`G${totalRow}`] = { v: totals.turnos, s: xfTotaisTotal };
+  totaisCells[`H${totalRow}`] = { v: totals.folgas, s: xfTotaisTotal };
+  totaisCells[`I${totalRow}`] = { v: totals.ferias, s: xfTotaisTotal };
+  totaisCells[`J${totalRow}`] = { v: totals.fnoite, s: xfTotaisTotal };
+  totaisCells[`K${totalRow}`] = { v: totals.formacao, s: xfTotaisTotal };
 
   // Nota debaixo da tabela com a lista de feriados aplicados
   if (feriados.size) {
@@ -1055,7 +1125,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     totaisCells[`A${noteRow}`] = { v: `Feriados aplicados: ${[...feriados].sort((a,b)=>a-b).join(', ')}`, s: xfTotaisCellLeft };
   }
 
-  const sheet3Xml = renderSheet(totaisCells, [12, 22, 10, 11, 14, 8, 8, 8, 9, 10], null);
+  const sheet3Xml = renderSheet(totaisCells, [12, 22, 10, 10, 11, 14, 8, 8, 8, 9, 10], null);
 
   const stylesXml = styles.render();
 
@@ -1130,6 +1200,7 @@ let lastFilename = 'grelha-turnos.xlsx';
 let parsedData = null;
 let currentColors = {};
 let currentModes = {};
+let currentFNHours = {};
 let currentFeriados = new Set();
 let rebuildBusy = false;
 let rebuildTimer = null;
@@ -1152,7 +1223,7 @@ async function rebuild() {
   if (dlBtn) dlBtn.disabled = true;
   if (tag) { tag.textContent = 'a recalcular…'; tag.classList.remove('active'); }
   try {
-    const result = await buildXlsx(parsedData, { modes: currentModes, feriados: currentFeriados });
+    const result = await buildXlsx(parsedData, { modes: currentModes, fnHours: currentFNHours, feriados: currentFeriados });
     lastBlob = result.blob;
     if (tag) { tag.textContent = 'atualizado'; tag.classList.add('active'); }
   } finally {
@@ -1205,8 +1276,9 @@ async function handleFile(file) {
     const parsed = readSource(buf);
     parsedData = parsed;
     currentModes = Object.fromEntries(parsed.persons.map(p => [p, defaultMode(p)]));
+    currentFNHours = Object.fromEntries(parsed.persons.map(p => [p, defaultFNHours(p)]));
     currentFeriados = new Set(parsed.markedFeriados || []);
-    const result = await buildXlsx(parsed, { modes: currentModes, feriados: currentFeriados });
+    const result = await buildXlsx(parsed, { modes: currentModes, fnHours: currentFNHours, feriados: currentFeriados });
     currentColors = result.colors;
     lastBlob = result.blob;
 
@@ -1269,14 +1341,14 @@ async function handleFile(file) {
               <select class="mode-select" data-person="${escHtml(p)}" aria-label="Modo dom/fer ${escHtml(p)}">
                 ${MODE_OPTIONS.map(o => `<option value="${o.value}"${currentModes[p] === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
               </select>
+              <label class="fn-input-wrap">FN <input type="number" class="fn-input" data-person="${escHtml(p)}" min="0" max="24" step="0.5" value="${currentFNHours[p]}" aria-label="Horas por dia de FN ${escHtml(p)}"> h</label>
             </div>
           `).join('')}
         </div>
         <div class="mode-hint">
-          <strong>Dobradas:</strong> horas em dom/fer contam a 2× &nbsp;·&nbsp;
-          <strong>Pagas:</strong> não somam (são pagas em $) &nbsp;·&nbsp;
-          <strong>Normais:</strong> contam a 1×.
-          Afeta só a coluna <em>H. a compensar</em> na folha Totais.
+          <strong>Dom/fer:</strong> Dobradas (×2) · Pagas (não somam) · Normais (×1).&nbsp;
+          <strong>FN:</strong> horas a adicionar por cada dia de folga de noite (default 8h, MA 4h).
+          Tudo afeta só a coluna <em>H. a compensar</em> na folha Totais.
         </div>
       </div>
       <div class="actions">
@@ -1297,6 +1369,13 @@ async function handleFile(file) {
       sel.addEventListener('change', (e) => {
         currentModes[e.target.dataset.person] = e.target.value;
         rebuild();
+      });
+    });
+    document.querySelectorAll('.fn-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        currentFNHours[e.target.dataset.person] = Number.isFinite(v) && v >= 0 ? v : 0;
+        rebuildDebounced();
       });
     });
 
