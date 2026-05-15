@@ -1006,13 +1006,20 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   legCells[`A${codeStart}`] = { v: 'Código', s: xfLegHeader };
   legCells[`B${codeStart}`] = { v: 'Cor', s: xfLegHeader };
   legCells[`C${codeStart}`] = { v: 'Significado', s: xfLegHeader };
+  // XFs com border thin para mostrar as cores na legenda (não usados na grelha)
+  const xfLegFillFerias = styles.regXf({ fillIdx: fillFerias, borderIdx: border });
+  const xfLegFillFolga = styles.regXf({ fillIdx: fillFolga, borderIdx: border });
+  const xfLegFillFolgaNoite = styles.regXf({ fillIdx: fillFolgaNoite, borderIdx: border });
+  const xfLegFillFormacao = styles.regXf({ fillIdx: fillFormacao, borderIdx: border });
+  const xfLegFillOffWeekday = styles.regXf({ fillIdx: fillNeutral, borderIdx: border });
+  const xfLegFillOffWeekend = styles.regXf({ fillIdx: fillOffWeekend, borderIdx: border });
   const codes = [
-    { code: 'F1, F1/10…', fill: xfTurnoFerias, desc: 'Férias (com ou sem fração)' },
-    { code: 'f', fill: xfTurnoFolga, desc: 'Folga' },
-    { code: 'FN, FN 30/4', fill: xfTurnoFolgaNoite, desc: 'Folga da noite (com ou sem data)' },
-    { code: 'formação', fill: xfTurnoFormacao, desc: 'Formação' },
-    { code: '-', fill: xfTurnoOffWeekday, desc: 'Não trabalha (dia útil)' },
-    { code: '- (fim-de-semana)', fill: xfTurnoOffWeekend, desc: 'Não trabalha (sábado/domingo)' }
+    { code: 'F1, F1/10…', fill: xfLegFillFerias, desc: 'Férias (com ou sem fração)' },
+    { code: 'f', fill: xfLegFillFolga, desc: 'Folga' },
+    { code: 'FN, FN 30/4', fill: xfLegFillFolgaNoite, desc: 'Folga da noite (com ou sem data)' },
+    { code: 'formação', fill: xfLegFillFormacao, desc: 'Formação' },
+    { code: '-', fill: xfLegFillOffWeekday, desc: 'Não trabalha (dia útil)' },
+    { code: '- (fim-de-semana)', fill: xfLegFillOffWeekend, desc: 'Não trabalha (sábado/domingo)' }
   ];
   codes.forEach((c, i) => {
     legCells[`A${codeStart + 1 + i}`] = { v: c.code, s: xfLegName };
