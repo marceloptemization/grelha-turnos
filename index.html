@@ -755,8 +755,13 @@ function createStyleRegistry() {
     }).join('');
 
     const bordersXml = borders.map(b => {
-      const color = `<color rgb="FF${BORDER_RGB}"/>`;
-      const side = (name, style) => style === 'none' ? `<${name}/>` : `<${name} style="${style}">${color}</${name}>`;
+      // thin → cinzento claro (CCCCCC). medium → preto (default, sem color tag).
+      const thinColor = `<color rgb="FF${BORDER_RGB}"/>`;
+      const side = (name, style) => {
+        if (style === 'none') return `<${name}/>`;
+        if (style === 'thin') return `<${name} style="thin">${thinColor}</${name}>`;
+        return `<${name} style="${style}"/>`;
+      };
       return `<border>${side('left', b.left)}${side('right', b.right)}${side('top', b.top)}${side('bottom', b.bottom)}<diagonal/></border>`;
     }).join('');
 
