@@ -1027,7 +1027,8 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   });
 
   const totalCols = 1 + validDays.length * N;
-  const colWidths = [12, ...Array(totalCols - 1).fill(4.5)];
+  // 7 unidades cabe folgadamente "13-20", "+15-19", "8.30-13" em duas linhas com wrap.
+  const colWidths = [12, ...Array(totalCols - 1).fill(7)];
   const rowHeights = [22, 18, 38, ...Array(TIME_SLOTS.length).fill(16)];
   const sheet1Xml = renderSheet(cells, colWidths, rowHeights);
 
