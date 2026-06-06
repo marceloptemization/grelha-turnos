@@ -837,7 +837,13 @@ function createStyleRegistry() {
   return { regFont, regFill, regXf, regBorder, render, thinBorderIdx: 1 };
 }
 
-function renderSheet(cells, cols, rows, print = null) {
+function renderSheet(cells, cols, rows, opts = {}) {
+  const print = opts?.print || null;
+  const freeze = opts?.freeze || null;
+  const gridLines = opts?.gridLines ?? true;
+  const tabColor = opts?.tabColor || null;
+  const headerFooter = opts?.headerFooter || null;
+
   const byRow = {};
   for (const ref in cells) {
     const m = ref.match(/^([A-Z]+)(\d+)$/);
@@ -868,13 +874,35 @@ function renderSheet(cells, cols, rows, print = null) {
         `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols>`
     : '';
 
-  // Bloco opcional para impressão: orientação landscape, fit-to-width,
-  // quebras de página em colunas e linhas, margens apertadas.
-  const sheetPrXml = print ? `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>` : '';
+  // sheetPr: cor da tab + fit-to-page (se houver impressão)
+  let sheetPrXml = '';
+  if (tabColor || print) {
+    const tabXml = tabColor ? `<tabColor rgb="FF${tabColor}"/>` : '';
+    const setupXml = print ? `<pageSetUpPr fitToPage="1"/>` : '';
+    sheetPrXml = `<sheetPr>${tabXml}${setupXml}</sheetPr>`;
+  }
+
+  // sheetViews: gridlines on/off + freeze panes
+  let sheetViewsXml = '';
+  if (!gridLines || freeze) {
+    const viewAttrs = ['workbookViewId="0"'];
+    if (!gridLines) viewAttrs.push('showGridLines="0"');
+    let paneXml = '';
+    if (freeze) {
+      const x = freeze.xSplit || 0;
+      const y = freeze.ySplit || 0;
+      const topLeftCol = colLetters(x + 1);
+      const topLeftRow = y + 1;
+      paneXml = `<pane xSplit="${x}" ySplit="${y}" topLeftCell="${topLeftCol}${topLeftRow}" activePane="bottomRight" state="frozen"/>`;
+    }
+    sheetViewsXml = `<sheetViews><sheetView ${viewAttrs.join(' ')}>${paneXml}</sheetView></sheetViews>`;
+  }
+
+  // Impressão: orientação, margens, quebras de coluna
   let printSetupXml = '';
   let colBreaksXml = '';
   if (print) {
-    const margins = print.margins || { l: 0.4, r: 0.4, t: 0.4, b: 0.4, h: 0.3, f: 0.3 };
+    const margins = print.margins || { l: 0.4, r: 0.4, t: 0.5, b: 0.5, h: 0.3, f: 0.3 };
     printSetupXml = `<printOptions horizontalCentered="1"/>` +
       `<pageMargins left="${margins.l}" right="${margins.r}" top="${margins.t}" bottom="${margins.b}" header="${margins.h}" footer="${margins.f}"/>` +
       `<pageSetup paperSize="9" orientation="${print.orientation || 'landscape'}" fitToWidth="${print.fitToWidth ?? 1}" fitToHeight="${print.fitToHeight ?? 1}"/>`;
@@ -884,9 +912,29 @@ function renderSheet(cells, cols, rows, print = null) {
     }
   }
 
+  // Header e footer (impressão)
+  let headerFooterXml = '';
+  if (headerFooter) {
+    const fmt = (h) => {
+      if (!h) return '';
+      let s = '';
+      if (h.left)   s += '&L' + h.left;
+      if (h.center) s += '&C' + h.center;
+      if (h.right)  s += '&R' + h.right;
+      return s;
+    };
+    const hdr = fmt(headerFooter.header);
+    const ftr = fmt(headerFooter.footer);
+    const hdrXml = hdr ? `<oddHeader>${escXml(hdr)}</oddHeader>` : '';
+    const ftrXml = ftr ? `<oddFooter>${escXml(ftr)}</oddFooter>` : '';
+    if (hdrXml || ftrXml) headerFooterXml = `<headerFooter>${hdrXml}${ftrXml}</headerFooter>`;
+  }
+
+  // Ordem dos elementos no worksheet:
+  // sheetPr, sheetViews, cols, sheetData, printOptions, pageMargins, pageSetup, headerFooter, colBreaks
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPrXml}
-${colsXml}<sheetData>${rowsXml}</sheetData>${printSetupXml}${colBreaksXml}</worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPrXml}${sheetViewsXml}
+${colsXml}<sheetData>${rowsXml}</sheetData>${printSetupXml}${headerFooterXml}${colBreaksXml}</worksheet>`;
 }
 
 async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
@@ -1060,10 +1108,13 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     colBreaks.push(k * N + 1);
   }
   const sheet1Xml = renderSheet(cells, colWidths, rowHeights, {
-    orientation: 'landscape',
-    fitToWidth: 1,
-    fitToHeight: 1,
-    colBreaks,
+    print: { orientation: 'landscape', fitToWidth: 1, fitToHeight: 1, colBreaks },
+    freeze: { xSplit: 1, ySplit: 3 },
+    gridLines: false,
+    tabColor: '1B5E20', // verde primário
+    headerFooter: {
+      footer: { left: 'Farmácia Faria · Grelha de turnos', right: 'Página &P de &N' },
+    },
   });
 
   // Legenda
@@ -1120,7 +1171,10 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     typoNotes.forEach((n, i) => { legCells[`A${typoStart + 1 + i}`] = { v: `• ${n}`, s: xfLegNote }; });
   }
 
-  const sheet2Xml = renderSheet(legCells, [22, 12, 50], null);
+  const sheet2Xml = renderSheet(legCells, [22, 12, 50], null, {
+    gridLines: false,
+    tabColor: 'BDBDBD', // cinzento neutro
+  });
 
   // Folha "Totais" — horas e dias por colaborador, com modo dom/fer + FN aplicado
   const totaisCells = {};
@@ -1209,7 +1263,11 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     totaisCells[`A${noteRow}`] = { v: `Feriados aplicados: ${[...feriados].sort((a,b)=>a-b).join(', ')}`, s: xfTotaisCellLeft };
   }
 
-  const sheet3Xml = renderSheet(totaisCells, [12, 22, 10, 10, 11, 14, 8, 8, 8, 9, 10], null);
+  const sheet3Xml = renderSheet(totaisCells, [12, 22, 10, 10, 11, 14, 8, 8, 8, 9, 10], null, {
+    freeze: { xSplit: 1, ySplit: 1 },
+    gridLines: false,
+    tabColor: '76C218', // verde claro
+  });
 
   const stylesXml = styles.render();
 
