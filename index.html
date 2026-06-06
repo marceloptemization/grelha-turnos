@@ -597,6 +597,22 @@ function parseShift(raw) {
   return { intervals: out, typoNote: typo.note };
 }
 
+// Formata o texto do turno para a célula da grelha:
+// "9-13+15-19" → "9-13\n+15-19" (manhã em cima, tarde em baixo).
+// Quebra apenas em `+` seguido de dígito (preserva "+N" inline).
+// Aplica primeiro a correção de typos para o split ficar coerente.
+function formatTurnoText(raw) {
+  if (raw == null) return '-';
+  let s = String(raw).trim();
+  if (!s) return '-';
+  // Códigos não-trabalho ficam como estão
+  if (s === '-' || s === 'f' || /^F\d/i.test(s) || /^FN\b/i.test(s) || /^formação/i.test(s)) return s;
+  s = detectTypoAndFix(s).fixed;
+  const parts = s.split(/\+\s*(?=\d)/);
+  if (parts.length <= 1) return s;
+  return parts[0].trimEnd() + '\n+' + parts.slice(1).map(p => p.trim()).join('\n+');
+}
+
 function cellVal(ws, r, c) {
   const ref = XLSX.utils.encode_cell({ r, c });
   return ws[ref] ? ws[ref].v : undefined;
@@ -975,7 +991,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     for (let i = 0; i < N; i++) {
       const p = persons[i];
       const raw = shifts[day]?.[p];
-      const txt = (raw == null || String(raw).trim() === '') ? '-' : String(raw);
+      const txt = formatTurnoText(raw);
       const kind = classifyShift(raw);
       let base;
       if (kind === 'ferias') base = baseTurnoFerias;
