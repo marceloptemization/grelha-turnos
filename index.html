@@ -837,7 +837,7 @@ function createStyleRegistry() {
   return { regFont, regFill, regXf, regBorder, render, thinBorderIdx: 1 };
 }
 
-function renderSheet(cells, cols, rows) {
+function renderSheet(cells, cols, rows, print = null) {
   const byRow = {};
   for (const ref in cells) {
     const m = ref.match(/^([A-Z]+)(\d+)$/);
@@ -868,9 +868,25 @@ function renderSheet(cells, cols, rows) {
         `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('')}</cols>`
     : '';
 
+  // Bloco opcional para impressão: orientação landscape, fit-to-width,
+  // quebras de página em colunas e linhas, margens apertadas.
+  const sheetPrXml = print ? `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>` : '';
+  let printSetupXml = '';
+  let colBreaksXml = '';
+  if (print) {
+    const margins = print.margins || { l: 0.4, r: 0.4, t: 0.4, b: 0.4, h: 0.3, f: 0.3 };
+    printSetupXml = `<printOptions horizontalCentered="1"/>` +
+      `<pageMargins left="${margins.l}" right="${margins.r}" top="${margins.t}" bottom="${margins.b}" header="${margins.h}" footer="${margins.f}"/>` +
+      `<pageSetup paperSize="9" orientation="${print.orientation || 'landscape'}" fitToWidth="${print.fitToWidth ?? 1}" fitToHeight="${print.fitToHeight ?? 1}"/>`;
+    if (print.colBreaks?.length) {
+      const breaksXml = print.colBreaks.map(id => `<brk id="${id}" max="1048575" man="1"/>`).join('');
+      colBreaksXml = `<colBreaks count="${print.colBreaks.length}" manualBreakCount="${print.colBreaks.length}">${breaksXml}</colBreaks>`;
+    }
+  }
+
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPrXml}
+${colsXml}<sheetData>${rowsXml}</sheetData>${printSetupXml}${colBreaksXml}</worksheet>`;
 }
 
 async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
@@ -1030,7 +1046,20 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   // 7 unidades cabe folgadamente "13-20", "+15-19", "8.30-13" em duas linhas com wrap.
   const colWidths = [12, ...Array(totalCols - 1).fill(7)];
   const rowHeights = [22, 18, 38, ...Array(TIME_SLOTS.length).fill(16)];
-  const sheet1Xml = renderSheet(cells, colWidths, rowHeights);
+
+  // Impressão: landscape A4, quebrar a cada 2 dias para nunca cortar um dia
+  // ao meio. Excel escala cada secção para caber numa página.
+  const daysPerPage = 2;
+  const colBreaks = [];
+  for (let k = daysPerPage; k < validDays.length; k += daysPerPage) {
+    colBreaks.push(k * N + 1);
+  }
+  const sheet1Xml = renderSheet(cells, colWidths, rowHeights, {
+    orientation: 'landscape',
+    fitToWidth: 1,
+    fitToHeight: 1,
+    colBreaks,
+  });
 
   // Legenda
   const legCells = {};
@@ -1206,6 +1235,9 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
 <sheet name="Totais" sheetId="3" r:id="rId3"/>
 <sheet name="Legenda" sheetId="2" r:id="rId2"/>
 </sheets>
+<definedNames>
+<definedName name="_xlnm.Print_Titles" localSheetId="0">Grelha!$A:$A,Grelha!$1:$3</definedName>
+</definedNames>
 </workbook>`);
 
   zip.file('xl/_rels/workbook.xml.rels',
