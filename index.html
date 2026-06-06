@@ -519,7 +519,20 @@ const BORDER_RGB = 'CCCCCC';
 const TIME_SLOTS = [];
 for (let m = 510; m < 1320; m += 30) {
   const fmt = mm => `${String(Math.floor(mm/60)).padStart(2,'0')}:${String(mm%60).padStart(2,'0')}`;
-  TIME_SLOTS.push(`${fmt(m)}-${fmt(m+30)}`);
+  TIME_SLOTS.push(fmt(m)); // só o início — cada linha são 30 min (documentado na Legenda)
+}
+
+// Detetar mês a partir da célula A1 (linha 1, coluna A) do ficheiro de
+// origem, que tipicamente tem "Jun", "Mai", "Out", etc.
+const MONTH_NAMES = {
+  jan: 'Janeiro', fev: 'Fevereiro', mar: 'Março', abr: 'Abril',
+  mai: 'Maio', jun: 'Junho', jul: 'Julho', ago: 'Agosto',
+  set: 'Setembro', out: 'Outubro', nov: 'Novembro', dez: 'Dezembro',
+};
+function fullMonthName(raw) {
+  if (raw == null) return null;
+  const key = String(raw).trim().toLowerCase().slice(0, 3);
+  return MONTH_NAMES[key] || null;
 }
 
 function parseTime(t) {
@@ -709,7 +722,9 @@ function readSource(ab) {
     if (hits >= threshold) markedFeriados.add(d.day);
   }
 
-  return { persons, persons2, blockMismatch, shifts, weekdays, validDays, markedFeriados };
+  const monthName = fullMonthName(cellVal(ws, 0, 0)) || fullMonthName(cellVal(ws, 15, 0));
+
+  return { persons, persons2, blockMismatch, shifts, weekdays, validDays, markedFeriados, monthName };
 }
 
 function colLetters(n) {
@@ -937,7 +952,7 @@ function renderSheet(cells, cols, rows, opts = {}) {
 ${colsXml}<sheetData>${rowsXml}</sheetData>${printSetupXml}${headerFooterXml}${colBreaksXml}</worksheet>`;
 }
 
-async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
+async function buildXlsx({ persons, shifts, weekdays, validDays, monthName }, opts = {}) {
   const modes = opts.modes || {};
   const fnHours = opts.fnHours || {};
   const feriados = opts.feriados instanceof Set ? opts.feriados : new Set(opts.feriados || []);
@@ -987,6 +1002,13 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   const xfHora = styles.regXf({ fontIdx: fontBold10, fillIdx: fillDowWeek, borderIdx: border, alignment: alignCenter });
   const xfTurnoHeader = styles.regXf({ fontIdx: fontBold10, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
   const xfTimeLabel = styles.regXf({ fontIdx: fontTime, fillIdx: fillNeutral, borderIdx: border, alignment: alignCenter });
+  // Variante para a célula Hora alinhada com o LUNCH_DIVIDER_ROW (estende a borda medium).
+  const xfTimeLabelDivider = styles.regXf({
+    fontIdx: fontTime,
+    fillIdx: fillNeutral,
+    borderIdx: styles.regBorder({ left: 'thin', right: 'thin', top: 'thin', bottom: 'medium' }),
+    alignment: alignCenter,
+  });
   const xfPersonHeader = {};
   for (const p of persons) xfPersonHeader[p] = styles.regXf({ fontIdx: fontBold9, fillIdx: personFillIdx[p], borderIdx: border, alignment: alignCenter });
   const xfPaintedCell = {};
@@ -1012,12 +1034,15 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   const baseEmpty = {};
 
   const LAST_GRID_ROW = 2 + TIME_SLOTS.length; // 0=dia, 1=pessoa, 2=turno, 3..3+slots-1 = slots
+  // Slot 12:30-13:00 (idx 8 nos TIME_SLOTS) é onde tipicamente acaba a manhã.
+  // O fundo dessa linha leva border medium para criar um separador visual.
+  const LUNCH_DIVIDER_ROW = 3 + 8;
   function gridBorder(rowIdx, colInDay) {
     return styles.regBorder({
       left:   colInDay === 0     ? 'medium' : 'thin',
       right:  colInDay === N - 1 ? 'medium' : 'thin',
       top:    rowIdx === 0       ? 'medium' : 'thin',
-      bottom: rowIdx === LAST_GRID_ROW ? 'medium' : 'thin',
+      bottom: rowIdx === LAST_GRID_ROW || rowIdx === LUNCH_DIVIDER_ROW ? 'medium' : 'thin',
     });
   }
   function gridXf(base, rowIdx, colInDay) {
@@ -1077,7 +1102,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   TIME_SLOTS.forEach((slot, idx) => {
     const row = 3 + idx;
     const slotStart = 510 + idx * 30;
-    put(row, 0, slot, xfTimeLabel);
+    put(row, 0, slot, row === LUNCH_DIVIDER_ROW ? xfTimeLabelDivider : xfTimeLabel);
     validDays.forEach((day, dayIdx) => {
       const startCol = 1 + dayIdx * N;
       for (let i = 0; i < N; i++) {
@@ -1095,7 +1120,8 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
   // landscape (12 + 22×6 = 144 < ~146 disponíveis), sem depender da escala
   // automática do Excel. Visualizadores como Numbers que ignoram fitToPage
   // continuam a mostrar 2 dias por página completos.
-  const colWidths = [12, ...Array(totalCols - 1).fill(6)];
+  // Coluna Hora a 8 (cabia "08:30-09:00" antes; agora só "08:30" → 5 chars, fica folgado)
+  const colWidths = [8, ...Array(totalCols - 1).fill(6)];
   const rowHeights = [22, 18, 38, ...Array(TIME_SLOTS.length).fill(16)];
 
   // Impressão: landscape A4, quebrar a cada 3 dias para nunca cortar um dia
@@ -1113,6 +1139,7 @@ async function buildXlsx({ persons, shifts, weekdays, validDays }, opts = {}) {
     gridLines: false,
     tabColor: '1B5E20', // verde primário
     headerFooter: {
+      header: monthName ? { center: monthName } : null,
       footer: { left: 'Farmácia Faria · Grelha de turnos', right: 'Página &P de &N' },
     },
   });
