@@ -646,64 +646,108 @@ function cellFillRgb(ws, r, c) {
 const SPECIAL_FILL_RE = /^(FF0000|C00000|FFC000|FFA500|FF8000|FF6600|F4B084|FCE5CD|F8CBAD)$/;
 function isSpecialFill(rgb) { return !!rgb && SPECIAL_FILL_RE.test(rgb); }
 
+// Deteção de blocos totalmente dinâmica.
+//
+// O ficheiro de origem divide o mês em quinzenas (blocos). O corte NÃO é fixo:
+// pode ser 1-14/15-31, 1-16/17-31, etc., e a linha onde começa o 2º bloco
+// depende do nº de colaboradores. Fixar as linhas (o antigo readBlock(15,16,17))
+// fazia a app parar no dia 16 quando 4+ colaboradores empurravam o cabeçalho do
+// 2º bloco para baixo da linha 16.
+//
+// Estratégia:
+//   1. Encontrar as linhas-cabeçalho: linhas com >=5 números de dia (1-31) nas
+//      colunas a partir de B.
+//   2. Para cada cabeçalho, ler os colaboradores na coluna A por baixo, até
+//      célula vazia ou não-nome.
+//   3. Mapear os turnos por NOME (não por posição de linha), o que também torna
+//      o resultado correto quando a ordem dos colaboradores difere entre blocos.
 function readSource(ab) {
   const wb = XLSX.read(ab, { type: 'array', cellStyles: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
 
-  const persons1 = [];
-  for (let r = 2; r <= 12; r++) {
-    const v = cellVal(ws, r, 0);
-    if (v && /^[A-ZÀ-Ÿ]{1,4}$/i.test(String(v).trim())) persons1.push(String(v).trim());
-  }
-  const persons2 = [];
-  for (let r = 17; r <= 27; r++) {
-    const v = cellVal(ws, r, 0);
-    if (v && /^[A-ZÀ-Ÿ]{1,4}$/i.test(String(v).trim())) persons2.push(String(v).trim());
+  const range = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+  const maxRow = range.e.r;
+  const maxCol = range.e.c;
+
+  const isName = v => v != null && /^[A-ZÀ-Ÿ]{1,4}$/i.test(String(v).trim());
+  const asDay = v => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null;
+  };
+
+  // 1. Linhas-cabeçalho: >=5 números de dia (1-31) a partir da coluna B.
+  const headerRows = [];
+  for (let r = 0; r <= maxRow; r++) {
+    let count = 0;
+    for (let c = 1; c <= maxCol; c++) {
+      if (asDay(cellVal(ws, r, c)) != null) count++;
+    }
+    if (count >= 5) headerRows.push(r);
   }
 
-  if (persons1.length === 0) {
-    throw new Error('Não consegui detetar colaboradores no bloco 1 (coluna A, linhas 3-13). Verifica a estrutura do ficheiro.');
+  if (headerRows.length === 0) {
+    throw new Error('Não consegui detetar dias válidos. Confirma que existe uma linha com os números dos dias (>=5 na mesma linha, a partir da coluna B).');
   }
 
-  const blockMismatch = persons1.length !== persons2.length || persons1.some((p, i) => p !== persons2[i]);
+  // 2. Constrói cada bloco a partir do seu cabeçalho.
+  //    - weekday na linha imediatamente acima do cabeçalho
+  //    - colaboradores na coluna A a partir da linha abaixo, até vazio/não-nome
+  const blocks = headerRows.map(dayNumberRow => {
+    const weekdayRow = dayNumberRow - 1;
+    const firstPersonRow = dayNumberRow + 1;
+
+    const persons = [];
+    const personRow = {};
+    for (let r = firstPersonRow; r <= maxRow; r++) {
+      const v = cellVal(ws, r, 0);
+      if (!isName(v)) break; // célula vazia ou não-nome termina o bloco
+      const name = String(v).trim();
+      persons.push(name);
+      if (!(name in personRow)) personRow[name] = r; // 1ª ocorrência ganha
+    }
+
+    const days = [];
+    for (let c = 1; c <= maxCol; c++) {
+      const day = asDay(cellVal(ws, dayNumberRow, c));
+      if (day == null) continue;
+      const weekday = weekdayRow >= 0 ? String(cellVal(ws, weekdayRow, c) || '').trim() : '';
+      days.push({ day, col: c, weekday });
+    }
+
+    return { dayNumberRow, weekdayRow, firstPersonRow, persons, personRow, days };
+  }).filter(b => b.persons.length > 0 && b.days.length > 0);
+
+  if (blocks.length === 0) {
+    throw new Error('Não consegui detetar colaboradores por baixo dos cabeçalhos de dias (coluna A). Verifica a estrutura do ficheiro.');
+  }
+
+  const persons1 = blocks[0].persons;
+  const persons2 = blocks[1] ? blocks[1].persons : [];
   const persons = persons1;
 
-  // Os blocos não têm intervalos fixos (1-16 / 17-31). Lê os números reais
-  // da linha 2 (bloco 1) e linha 17 (bloco 2) e usa-os como identificadores.
-  // Suporta meses de 28-31 dias com qualquer corte entre blocos.
-  function readBlock(weekdayRow, dayNumberRow, firstPersonRow) {
-    const days = [];
-    for (let i = 0; i < 16; i++) {
-      const col = 1 + i;
-      const dn = cellVal(ws, dayNumberRow, col);
-      const day = dn != null && Number.isFinite(Number(dn)) ? Number(dn) : null;
-      if (day == null || day < 1 || day > 31) continue;
-      const weekday = String(cellVal(ws, weekdayRow, col) || '').trim();
-      days.push({ day, col, weekday, firstPersonRow });
-    }
-    return days;
-  }
+  // Só há "mismatch" quando existem 2+ blocos com listas de colaboradores
+  // diferentes. Ficheiros de bloco único nunca disparam o aviso.
+  const blockMismatch = blocks.length > 1 &&
+    (persons1.length !== persons2.length || persons1.some((p, i) => p !== persons2[i]));
 
-  const block1 = readBlock(0, 1, 2);
-  const block2 = readBlock(15, 16, 17);
-  const allDays = [...block1, ...block2];
-
-  if (allDays.length === 0) {
-    throw new Error('Não consegui detetar dias válidos. Confirma que a linha 2 (e a linha 17) têm os números dos dias.');
-  }
-
+  // 3. Mapeia turnos por NOME: para cada dia, usa a linha do colaborador no
+  //    bloco a que o dia pertence.
   const weekdays = {};
   const shifts = {};
   const seen = new Set();
   const validDays = [];
-  for (const d of allDays) {
-    if (seen.has(d.day)) continue;
-    seen.add(d.day);
-    validDays.push(d.day);
-    weekdays[d.day] = d.weekday;
-    shifts[d.day] = {};
-    for (let pIdx = 0; pIdx < persons.length; pIdx++) {
-      shifts[d.day][persons[pIdx]] = cellVal(ws, d.firstPersonRow + pIdx, d.col);
+  for (const b of blocks) {
+    for (const d of b.days) {
+      if (seen.has(d.day)) continue;
+      seen.add(d.day);
+      validDays.push(d.day);
+      weekdays[d.day] = d.weekday;
+      shifts[d.day] = {};
+      for (const name of persons) {
+        const row = b.personRow[name];
+        shifts[d.day][name] = row != null ? cellVal(ws, row, d.col) : undefined;
+      }
     }
   }
   validDays.sort((a, b) => a - b);
@@ -712,17 +756,25 @@ function readSource(ab) {
   // estão maioritariamente pintadas de cores quentes (laranja/vermelho).
   // Excluímos domingos porque já são detetados pelo nome do dia.
   const markedFeriados = new Set();
-  const threshold = Math.max(1, Math.ceil(persons.length / 2));
-  for (const d of allDays) {
-    if (/^Dom/i.test(d.weekday)) continue;
-    let hits = 0;
-    for (let pIdx = 0; pIdx < persons.length; pIdx++) {
-      if (isSpecialFill(cellFillRgb(ws, d.firstPersonRow + pIdx, d.col))) hits++;
+  for (const b of blocks) {
+    const threshold = Math.max(1, Math.ceil(b.persons.length / 2));
+    for (const d of b.days) {
+      if (/^Dom/i.test(d.weekday)) continue;
+      let hits = 0;
+      for (const name of b.persons) {
+        if (isSpecialFill(cellFillRgb(ws, b.personRow[name], d.col))) hits++;
+      }
+      if (hits >= threshold) markedFeriados.add(d.day);
     }
-    if (hits >= threshold) markedFeriados.add(d.day);
   }
 
-  const monthName = fullMonthName(cellVal(ws, 0, 0)) || fullMonthName(cellVal(ws, 15, 0));
+  // Nome do mês: normalmente na coluna A da linha de weekday de um dos blocos.
+  let monthName = null;
+  for (const b of blocks) {
+    monthName = (b.weekdayRow >= 0 ? fullMonthName(cellVal(ws, b.weekdayRow, 0)) : null)
+      || fullMonthName(cellVal(ws, b.dayNumberRow, 0));
+    if (monthName) break;
+  }
 
   return { persons, persons2, blockMismatch, shifts, weekdays, validDays, markedFeriados, monthName };
 }
